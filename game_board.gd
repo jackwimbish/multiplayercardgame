@@ -48,6 +48,114 @@ func initialize_card_pool():
     
     print("Card pool initialized: ", card_pool)
 
+func get_shop_size_for_tier(tier: int) -> int:
+    """Get number of cards shown in shop for given tier"""
+    match tier:
+        1: return 3
+        2, 3: return 4  
+        4, 5: return 5
+        6: return 6
+        _: return 3  # Default fallback
+
+func get_random_card_for_tier(tier: int) -> String:
+    """Get a random card ID for the specified tier that's available in the pool"""
+    var available_cards = []
+    
+    # Find all cards of this tier that have remaining copies
+    for card_id in card_pool.keys():
+        if card_pool[card_id] > 0:  # Has remaining copies
+            var card_data = CardDatabase.get_card_data(card_id)
+            if card_data.get("tier", 1) == tier:
+                available_cards.append(card_id)
+    
+    if available_cards.is_empty():
+        print("Warning: No available cards for tier ", tier)
+        return ""
+    
+    # Return random card from available options
+    return available_cards[randi() % available_cards.size()]
+
+func refresh_shop():
+    """Clear shop and populate with random cards from current tier"""
+    # Clear existing shop cards
+    for child in $MainLayout/ShopArea.get_children():
+        child.queue_free()
+    
+    var shop_size = get_shop_size_for_tier(shop_tier)
+    print("Refreshing shop (tier ", shop_tier, ") with ", shop_size, " cards")
+    
+    # Add new random cards to shop
+    for i in range(shop_size):
+        var card_id = get_random_card_for_tier(shop_tier)
+        if card_id != "":
+            add_card_to_shop(card_id)
+
+func add_card_to_shop(card_id: String):
+    """Add a card to the shop area"""
+    var card_data = CardDatabase.get_card_data(card_id)
+    var new_card = CardScene.instantiate()
+    new_card.setup_card_data(card_data)
+    
+    # Connect shop-specific click handler (different from hand cards)
+    new_card.card_clicked.connect(_on_shop_card_clicked.bind(card_id))
+    
+    # Store card_id for purchase logic
+    new_card.set_meta("card_id", card_id)
+    
+    $MainLayout/ShopArea.add_child(new_card)
+
+func _on_shop_card_clicked(card_id: String):
+    """Handle clicking a card in the shop to purchase it"""
+    var card_data = CardDatabase.get_card_data(card_id)
+    var cost = card_data.get("cost", 3)
+    
+    print("Attempting to purchase ", card_data.get("name", "Unknown"), " for ", cost, " gold")
+    
+    # Check if player can afford and has hand space
+    if not can_afford(cost):
+        print("Cannot afford card - need ", cost, " gold, have ", current_gold)
+        return
+    
+    if is_hand_full():
+        print("Cannot purchase - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+        return
+    
+    # Check if card is still available in pool
+    if card_pool.get(card_id, 0) <= 0:
+        print("Card no longer available in pool")
+        return
+    
+    # Execute purchase
+    if spend_gold(cost):
+        # Remove from pool
+        card_pool[card_id] -= 1
+        
+        # Add to hand 
+        add_card_to_hand_direct(card_id)
+        
+        # Remove from shop
+        remove_card_from_shop(card_id)
+        
+        print("Purchased ", card_data.get("name", "Unknown"), " - Remaining in pool: ", card_pool[card_id])
+
+func add_card_to_hand_direct(card_id: String):
+    """Add a card directly to hand (used by purchase system)"""
+    var card_data = CardDatabase.get_card_data(card_id)
+    var new_card = CardScene.instantiate()
+    new_card.setup_card_data(card_data)
+    new_card.card_clicked.connect(_on_card_clicked)
+    new_card.drag_started.connect(_on_card_drag_started)
+    
+    $MainLayout/PlayerHand.add_child(new_card)
+    update_hand_count()
+
+func remove_card_from_shop(card_id: String):
+    """Remove the first instance of a card from the shop"""
+    for child in $MainLayout/ShopArea.get_children():
+        if child.get_meta("card_id", "") == card_id:
+            child.queue_free()
+            break
+
 func calculate_base_gold_for_turn(turn: int) -> int:
     """Calculate base gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
     if turn <= 1:
@@ -71,6 +179,9 @@ func start_new_turn():
     
     print("Turn ", current_turn, " started - Base Gold: ", player_base_gold, ", Current Gold: ", current_gold)
     update_ui_displays()
+    
+    # Refresh shop for new turn (free)
+    refresh_shop()
 
 func update_ui_displays():
     """Update all UI elements with current game state"""
@@ -188,6 +299,9 @@ func _ready():
     update_hand_count()
     update_board_count()
     
+    # Initialize shop with cards
+    refresh_shop()
+    
     # Deal a specific starting hand (mix of minions and spells for testing)
     add_card_to_hand("murloc_raider")
     add_card_to_hand("dire_wolf_alpha")
@@ -196,9 +310,12 @@ func _ready():
 
 
 func _on_refresh_shop_button_pressed() -> void:
-    # Temporary test: Add bonus gold (normally this would refresh shop for 1 gold)
-    add_bonus_gold(1)
-    print("TEST: Added 1 bonus gold for next turn")
+    var refresh_cost = 1
+    if spend_gold(refresh_cost):
+        refresh_shop()
+        print("Shop refreshed for ", refresh_cost, " gold")
+    else:
+        print("Cannot refresh shop - need ", refresh_cost, " gold")
 
 func _on_upgrade_shop_button_pressed() -> void:
     # Temporary test: Increase base gold (normally this would upgrade shop tier for 5 gold)
