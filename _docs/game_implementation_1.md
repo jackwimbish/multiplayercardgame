@@ -71,14 +71,22 @@ const CARD_DATABASE = {
 - Ensure proper visual hierarchy and layout
 
 ### Step 3: Restructure Game Board Layout (`game_board.tscn`)
-- Rename `PlayerHand` → `PlayerBoard`
-- Add `ShopArea` container above PlayerBoard
+- Create three-tier layout structure (top to bottom):
+  - `ShopArea` container (top) - displays cards available for purchase
+  - `PlayerBoard` container (middle) - active minions ready for combat (max 7 minions)
+  - `PlayerHand` container (bottom) - owned cards not yet played (max 10 cards)
 - Add UI elements:
   - `GoldLabel` (display current/max gold)
   - `ShopTierLabel` (display current shop tier)
   - `RefreshShopButton`
   - `UpgradeShopButton`
   - `EndTurnButton` (if not already present)
+
+### Gameplay Flow Design:
+- **Shop → Hand**: Purchased cards go to PlayerHand
+- **Hand → Board**: Drag minions from PlayerHand to PlayerBoard to activate them
+- **Spells**: Cast immediately from hand with instant effects (don't go to board)
+- **Combat**: Only minions on PlayerBoard participate in battles
 
 ### Step 4: Implement Core Game State (`game_board.gd`)
 - Add game state variables:
@@ -89,19 +97,27 @@ const CARD_DATABASE = {
   - `card_pool: Dictionary` (tracks remaining cards)
 - Add turn management system
 - Add gold calculation logic
+- Add hand/board size tracking variables
 
 ### Step 5: Implement Shop Logic
 - `refresh_shop()`: Clear shop, populate with random cards from current tier
 - `initialize_card_pool()`: Set up card availability tracking
 - `get_random_card_for_tier(tier: int)`: Return random card data respecting pool limits
-- Card purchase logic: validate gold, move card from shop to board, deduct gold
+- **Card purchase logic**: validate gold, move card from shop to **PlayerHand** (max 10), deduct gold
+- **Hand overflow protection**: Prevent purchasing if hand is full
 
 ### Step 6: Implement Player Actions
+- **Drag system**: Enable dragging minions from PlayerHand to PlayerBoard (max 7 minions)
+- **Spell casting**: Click spells in hand to cast immediately (don't go to board)
 - Connect UI buttons to functions:
   - Refresh shop (costs gold - typically 1)
   - Upgrade shop tier (costs gold - typically 5)
   - End turn (advance turn, refresh gold, refresh shop)
-- Handle card clicking in shop vs. board differently
+- Handle different card interactions:
+  - **Shop cards**: Click to purchase → PlayerHand
+  - **Hand minions**: Drag to PlayerBoard to activate
+  - **Hand spells**: Click to cast immediately
+  - **Board minions**: Drag to reorder position
 
 ### Step 7: Game Flow Integration
 - `start_new_turn()`: Increment turn, calculate max gold, refresh current gold
@@ -116,11 +132,19 @@ const CARD_DATABASE = {
 - When card is sold/destroyed, increment pool count  
 - Prevent showing cards with 0 remaining copies
 
+### Hand/Board Management
+- **Hand size limits**: Prevent purchasing when PlayerHand has 10 cards
+- **Board size limits**: Prevent playing minions when PlayerBoard has 7 minions
+- **Visual feedback**: Highlight valid drop zones when dragging cards
+- **Card state tracking**: Track whether cards are in shop, hand, or board
+- **Spell immediate effects**: Execute spell effects instantly without board placement
+
 ### UI State Management
 - Update gold display whenever gold changes
 - Update shop tier display when tier changes
 - Disable buttons when actions aren't available (insufficient gold, etc.)
 - Visual feedback for purchased/unavailable cards
+- Show hand/board counts and limits
 
 ### Single Player Focus
 - Remove/disable multiplayer networking for Phase 1
