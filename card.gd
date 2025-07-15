@@ -13,9 +13,19 @@ func _gui_input(event):
         drag_offset = get_global_mouse_position() - global_position
         drag_started.emit(self)
 
-func setup_card_data(data):
+func setup_card_data(data: Dictionary):
     # "data" is a Dictionary with card info
-    $VBoxContainer/CardName.text = data["name"]
-    $VBoxContainer/CardDescription.text = data["description"]
+    # Safely handle card data that may or may not have all fields
+    $VBoxContainer/CardName.text = data.get("name", "Unnamed")
+    $VBoxContainer/CardDescription.text = data.get("description", "")
+    
+    # Show attack/health stats at bottom left for minions (with forward slash)
+    if data.has("attack") and data.has("health"):
+        $VBoxContainer/BottomRow/StatsLabel.text = str(data["attack"]) + "/" + str(data["health"])
+        $VBoxContainer/BottomRow/StatsLabel.show()
+    else:
+        # Hide stats for spells or cards without both attack and health
+        $VBoxContainer/BottomRow/StatsLabel.hide()
+    
     # We'll load the art later, but the setup is here
     # $VBoxContainer/CardArt.texture = load(data["art_path"])

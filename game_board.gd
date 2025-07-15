@@ -62,10 +62,10 @@ func _unhandled_input(event):
             _on_card_dropped(dragged_card)
 
 func _ready():
-    # Deal a specific starting hand
+    # Deal a specific starting hand (mix of minions and spells for testing)
     add_card_to_hand("murloc_raider")
     add_card_to_hand("dire_wolf_alpha")
-    add_card_to_hand("rockpool_hunter")
+    add_card_to_hand("coin")  # Test spell card (no attack/health)
     add_card_to_hand("kindly_grandmother")
 
 
