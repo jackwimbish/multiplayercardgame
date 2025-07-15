@@ -12,52 +12,60 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_i37i2")
 
-[node name="PlayerHand" type="HBoxContainer" parent="."]
+[node name="MainLayout" type="VBoxContainer" parent="."]
 layout_mode = 1
-anchors_preset = 12
-anchor_top = 1.0
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
-grow_vertical = 0
-
-[node name="EndTurnButton" type="Button" parent="."]
-layout_mode = 1
-anchors_preset = 6
-anchor_left = 1.0
-anchor_top = 0.5
-anchor_right = 1.0
-anchor_bottom = 0.5
-offset_left = -78.0
-offset_top = -15.5
-offset_bottom = 15.5
-grow_horizontal = 0
 grow_vertical = 2
+
+[node name="TopUI" type="HBoxContainer" parent="MainLayout"]
+layout_mode = 2
+size_flags_vertical = 0
+
+[node name="GoldLabel" type="Label" parent="MainLayout/TopUI"]
+layout_mode = 2
+text = "Gold: 3/3"
+
+[node name="ShopTierLabel" type="Label" parent="MainLayout/TopUI"]
+layout_mode = 2
+text = "Shop Tier: 1"
+
+[node name="RefreshShopButton" type="Button" parent="MainLayout/TopUI"]
+layout_mode = 2
+text = "Refresh (1g)"
+
+[node name="UpgradeShopButton" type="Button" parent="MainLayout/TopUI"]
+layout_mode = 2
+text = "Upgrade (5g)"
+
+[node name="EndTurnButton" type="Button" parent="MainLayout/TopUI"]
+layout_mode = 2
 text = "End Turn"
 
-[node name="NetworkUI" type="HBoxContainer" parent="."]
-layout_mode = 1
-anchors_preset = 10
-anchor_right = 1.0
-grow_horizontal = 2
-
-[node name="IPAddressField" type="LineEdit" parent="NetworkUI"]
+[node name="ShopArea" type="HBoxContainer" parent="MainLayout"]
 layout_mode = 2
-size_flags_horizontal = 3
-placeholder_text = "Enter IP Address"
+size_flags_vertical = 0
 
-[node name="HostButton" type="Button" parent="NetworkUI"]
+[node name="PlayerBoard" type="HBoxContainer" parent="MainLayout"]
 layout_mode = 2
-text = "Host"
+size_flags_vertical = 3
 
-[node name="JoinButton" type="Button" parent="NetworkUI"]
+[node name="PlayerBoardLabel" type="Label" parent="MainLayout/PlayerBoard"]
 layout_mode = 2
-text = "Join"
+size_flags_horizontal = 0
+text = "Your Board (0/7)"
 
-[node name="DrawButton" type="Button" parent="NetworkUI"]
+[node name="PlayerHand" type="HBoxContainer" parent="MainLayout"]
 layout_mode = 2
-text = "Draw"
+size_flags_vertical = 0
 
-[connection signal="pressed" from="NetworkUI/HostButton" to="." method="_on_host_button_pressed"]
-[connection signal="pressed" from="NetworkUI/JoinButton" to="." method="_on_join_button_pressed"]
-[connection signal="pressed" from="NetworkUI/DrawButton" to="." method="_on_draw_button_pressed"]
+[node name="PlayerHandLabel" type="Label" parent="MainLayout/PlayerHand"]
+layout_mode = 2
+size_flags_horizontal = 0
+text = "Your Hand (0/10)"
+
+[connection signal="pressed" from="MainLayout/TopUI/RefreshShopButton" to="." method="_on_refresh_shop_button_pressed"]
+[connection signal="pressed" from="MainLayout/TopUI/UpgradeShopButton" to="." method="_on_upgrade_shop_button_pressed"]
+[connection signal="pressed" from="MainLayout/TopUI/EndTurnButton" to="." method="_on_end_turn_button_pressed"]

@@ -8,6 +8,14 @@ var dragged_card = null
 
 func _on_card_clicked(card_node):
     print("A card was selected: ", card_node.get_node("VBoxContainer/CardName").text)
+
+func update_hand_count():
+    var hand_size = $MainLayout/PlayerHand.get_children().size() - 1 # Subtract 1 for the label
+    $MainLayout/PlayerHand/PlayerHandLabel.text = "Your Hand (" + str(hand_size) + "/10)"
+
+func update_board_count():
+    var board_size = $MainLayout/PlayerBoard.get_children().size() - 1 # Subtract 1 for the label
+    $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/7)"
     
 @rpc("any_peer", "call_local")
 func add_card_to_hand(card_id):
@@ -18,7 +26,8 @@ func add_card_to_hand(card_id):
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
     #new_card.dropped.connect(_on_card_dropped)
-    $PlayerHand.add_child(new_card)
+    $MainLayout/PlayerHand.add_child(new_card)
+    update_hand_count() # Update the hand count display
 
 func _on_card_drag_started(card):
     dragged_card = card # Keep track of the dragged card
@@ -31,7 +40,7 @@ func _on_card_drag_started(card):
 
 func _on_card_dropped(card):
     print(card.name, " was dropped.")
-    var cards_in_hand = $PlayerHand.get_children()
+    var cards_in_hand = $MainLayout/PlayerHand.get_children()
     var new_index = -1
 
     # Find where to place the card based on its X position
@@ -41,14 +50,14 @@ func _on_card_dropped(card):
             break
 
     # Put the card back into the container
-    card.reparent($PlayerHand)
+    card.reparent($MainLayout/PlayerHand)
 
     # Move it to the calculated position
     if new_index != -1:
-        $PlayerHand.move_child(card, new_index)
+        $MainLayout/PlayerHand.move_child(card, new_index)
     else:
         # If it was dropped past the last card, move it to the end
-        $PlayerHand.move_child(card, $PlayerHand.get_child_count() - 1)
+        $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
     card.mouse_filter = Control.MOUSE_FILTER_STOP
     dragged_card = null # Forget the card now that it's dropped
 
@@ -62,6 +71,10 @@ func _unhandled_input(event):
             _on_card_dropped(dragged_card)
 
 func _ready():
+    # Initialize count displays
+    update_hand_count()
+    update_board_count()
+    
     # Deal a specific starting hand (mix of minions and spells for testing)
     add_card_to_hand("murloc_raider")
     add_card_to_hand("dire_wolf_alpha")
@@ -69,24 +82,11 @@ func _ready():
     add_card_to_hand("kindly_grandmother")
 
 
-func _on_host_button_pressed() -> void:
-    var peer = ENetMultiplayerPeer.new()
-    peer.create_server(DEFAULT_PORT)
-    multiplayer.multiplayer_peer = peer
-    print("Server started. Waiting for players.")
+func _on_refresh_shop_button_pressed() -> void:
+    print("Refresh shop button pressed - TODO: implement shop refresh")
 
+func _on_upgrade_shop_button_pressed() -> void:
+    print("Upgrade shop button pressed - TODO: implement shop tier upgrade")
 
-func _on_join_button_pressed() -> void:
-    var ip = $NetworkUI/IPAddressField.text
-    if ip == "":
-        ip = "127.0.0.1" # Default to localhost for easy testing
-    
-    var peer = ENetMultiplayerPeer.new()
-    peer.create_client(ip, DEFAULT_PORT)
-    multiplayer.multiplayer_peer = peer
-    print("Joining server at ", ip)
-
-
-func _on_draw_button_pressed() -> void:
-    # Instead of calling the function directly, we call the RPC
-    add_card_to_hand.rpc("murloc_raider")
+func _on_end_turn_button_pressed() -> void:
+    print("End turn button pressed - TODO: implement turn progression")
