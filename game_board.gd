@@ -251,9 +251,30 @@ func add_card_to_hand(card_id):
     $MainLayout/PlayerHand.add_child(new_card)
     update_hand_count() # Update the hand count display
 
+func _set_all_cards_mouse_filter(filter_mode: int, exclude_card = null):
+    """Set mouse filter for all cards in hand, board, and shop (optionally excluding one card)"""
+    # Cards in hand
+    for hand_card in $MainLayout/PlayerHand.get_children():
+        if hand_card != exclude_card:
+            hand_card.mouse_filter = filter_mode
+    
+    # Cards on board  
+    for board_card in $MainLayout/PlayerBoard.get_children():
+        if board_card != exclude_card and board_card.name != "PlayerBoardLabel":
+            board_card.mouse_filter = filter_mode
+    
+    # Cards in shop
+    for shop_card in $MainLayout/ShopArea.get_children():
+        if shop_card != exclude_card:
+            shop_card.mouse_filter = filter_mode
+
 func _on_card_drag_started(card):
     dragged_card = card # Keep track of the dragged card
     card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    # Set all other cards to ignore mouse events during dragging
+    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_IGNORE, card)
+    
     # "Lift" the card out of the container by making it a child of the main board
     card.reparent(self)
     # Ensure the dragged card renders on top of everything else
@@ -280,7 +301,11 @@ func _on_card_dropped(card):
     else:
         # If it was dropped past the last card, move it to the end
         $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
+    
+    # Restore mouse filters for all cards
     card.mouse_filter = Control.MOUSE_FILTER_STOP
+    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_STOP)
+    
     dragged_card = null # Forget the card now that it's dropped
 
 func _unhandled_input(event):
