@@ -33,3 +33,30 @@ offset_bottom = 15.5
 grow_horizontal = 0
 grow_vertical = 2
 text = "End Turn"
+
+[node name="NetworkUI" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+grow_horizontal = 2
+
+[node name="IPAddressField" type="LineEdit" parent="NetworkUI"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Enter IP Address"
+
+[node name="HostButton" type="Button" parent="NetworkUI"]
+layout_mode = 2
+text = "Host"
+
+[node name="JoinButton" type="Button" parent="NetworkUI"]
+layout_mode = 2
+text = "Join"
+
+[node name="DrawButton" type="Button" parent="NetworkUI"]
+layout_mode = 2
+text = "Draw"
+
+[connection signal="pressed" from="NetworkUI/HostButton" to="." method="_on_host_button_pressed"]
+[connection signal="pressed" from="NetworkUI/JoinButton" to="." method="_on_join_button_pressed"]
+[connection signal="pressed" from="NetworkUI/DrawButton" to="." method="_on_draw_button_pressed"]
