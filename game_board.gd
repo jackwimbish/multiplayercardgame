@@ -4,18 +4,98 @@ const DEFAULT_PORT = 9999
 const CardScene = preload("res://card.tscn")
 var dragged_card = null
 
+# Core game state variables
+var current_turn: int = 1
+var current_gold: int = 3
+var max_gold: int = 3
+var shop_tier: int = 1
+var card_pool: Dictionary = {}
+
+# Hand/board size tracking
+var max_hand_size: int = 10
+var max_board_size: int = 7
+
 
 
 func _on_card_clicked(card_node):
     print("A card was selected: ", card_node.get_node("VBoxContainer/CardName").text)
 
 func update_hand_count():
-    var hand_size = $MainLayout/PlayerHand.get_children().size() - 1 # Subtract 1 for the label
-    $MainLayout/PlayerHand/PlayerHandLabel.text = "Your Hand (" + str(hand_size) + "/10)"
+    var hand_size = get_hand_size()
+    $MainLayout/PlayerHand/PlayerHandLabel.text = "Your Hand (" + str(hand_size) + "/" + str(max_hand_size) + ")"
 
 func update_board_count():
-    var board_size = $MainLayout/PlayerBoard.get_children().size() - 1 # Subtract 1 for the label
-    $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/7)"
+    var board_size = get_board_size()
+    $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/" + str(max_board_size) + ")"
+
+func initialize_card_pool():
+    """Set up card availability tracking based on tier and copy counts"""
+    card_pool.clear()
+    
+    # Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
+    var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
+    
+    # Initialize pool for each card based on its tier
+    for card_id in CardDatabase.get_all_card_ids():
+        var card_data = CardDatabase.get_card_data(card_id)
+        var tier = card_data.get("tier", 1)
+        var copy_count = copies_by_tier.get(tier, 1)
+        card_pool[card_id] = copy_count
+    
+    print("Card pool initialized: ", card_pool)
+
+func calculate_max_gold_for_turn(turn: int) -> int:
+    """Calculate maximum gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
+    if turn <= 1:
+        return 3
+    elif turn <= 8:
+        return 2 + turn  # Turn 2=4 gold, turn 3=5 gold, ..., turn 8=10 gold
+    else:
+        return 10  # Maximum of 10 gold from turn 8 onwards
+
+func start_new_turn():
+    """Advance to the next turn and refresh gold"""
+    current_turn += 1
+    max_gold = calculate_max_gold_for_turn(current_turn)
+    current_gold = max_gold  # Refresh to full gold
+    
+    print("Turn ", current_turn, " started - Gold: ", current_gold, "/", max_gold)
+    update_ui_displays()
+
+func update_ui_displays():
+    """Update all UI elements with current game state"""
+    $MainLayout/TopUI/GoldLabel.text = "Gold: " + str(current_gold) + "/" + str(max_gold)
+    $MainLayout/TopUI/ShopTierLabel.text = "Shop Tier: " + str(shop_tier)
+
+func spend_gold(amount: int) -> bool:
+    """Attempt to spend gold. Returns true if successful, false if insufficient gold"""
+    if current_gold >= amount:
+        current_gold -= amount
+        update_ui_displays()
+        return true
+    else:
+        print("Insufficient gold: need ", amount, ", have ", current_gold)
+        return false
+
+func can_afford(cost: int) -> bool:
+    """Check if player can afford a given cost"""
+    return current_gold >= cost
+
+func get_hand_size() -> int:
+    """Get current number of cards in hand"""
+    return $MainLayout/PlayerHand.get_children().size() - 1  # Subtract label
+
+func get_board_size() -> int:
+    """Get current number of minions on board"""
+    return $MainLayout/PlayerBoard.get_children().size() - 1  # Subtract label
+
+func is_hand_full() -> bool:
+    """Check if hand is at maximum capacity"""
+    return get_hand_size() >= max_hand_size
+
+func is_board_full() -> bool:
+    """Check if board is at maximum capacity"""
+    return get_board_size() >= max_board_size
     
 @rpc("any_peer", "call_local")
 func add_card_to_hand(card_id):
@@ -71,7 +151,9 @@ func _unhandled_input(event):
             _on_card_dropped(dragged_card)
 
 func _ready():
-    # Initialize count displays
+    # Initialize game state
+    initialize_card_pool()
+    update_ui_displays()
     update_hand_count()
     update_board_count()
     
@@ -89,4 +171,5 @@ func _on_upgrade_shop_button_pressed() -> void:
     print("Upgrade shop button pressed - TODO: implement shop tier upgrade")
 
 func _on_end_turn_button_pressed() -> void:
-    print("End turn button pressed - TODO: implement turn progression")
+    print("End turn button pressed")
+    start_new_turn()
