@@ -96,47 +96,15 @@ func add_card_to_shop(card_id: String):
     var new_card = CardScene.instantiate()
     new_card.setup_card_data(card_data)
     
-    # Connect shop-specific click handler (different from hand cards)
-    new_card.card_clicked.connect(_on_shop_card_clicked.bind(card_id))
+    # Connect drag handler for shop cards (drag-to-purchase)
+    new_card.drag_started.connect(_on_card_drag_started)
     
     # Store card_id for purchase logic
     new_card.set_meta("card_id", card_id)
     
     $MainLayout/ShopArea.add_child(new_card)
 
-func _on_shop_card_clicked(card_id: String):
-    """Handle clicking a card in the shop to purchase it"""
-    var card_data = CardDatabase.get_card_data(card_id)
-    var cost = card_data.get("cost", 3)
-    
-    print("Attempting to purchase ", card_data.get("name", "Unknown"), " for ", cost, " gold")
-    
-    # Check if player can afford and has hand space
-    if not can_afford(cost):
-        print("Cannot afford card - need ", cost, " gold, have ", current_gold)
-        return
-    
-    if is_hand_full():
-        print("Cannot purchase - hand is full (", get_hand_size(), "/", max_hand_size, ")")
-        return
-    
-    # Check if card is still available in pool
-    if card_pool.get(card_id, 0) <= 0:
-        print("Card no longer available in pool")
-        return
-    
-    # Execute purchase
-    if spend_gold(cost):
-        # Remove from pool
-        card_pool[card_id] -= 1
-        
-        # Add to hand 
-        add_card_to_hand_direct(card_id)
-        
-        # Remove from shop
-        remove_card_from_shop(card_id)
-        
-        print("Purchased ", card_data.get("name", "Unknown"), " - Remaining in pool: ", card_pool[card_id])
+
 
 func add_card_to_hand_direct(card_id: String):
     """Add a card directly to hand (used by purchase system)"""
@@ -149,12 +117,7 @@ func add_card_to_hand_direct(card_id: String):
     $MainLayout/PlayerHand.add_child(new_card)
     update_hand_count()
 
-func remove_card_from_shop(card_id: String):
-    """Remove the first instance of a card from the shop"""
-    for child in $MainLayout/ShopArea.get_children():
-        if child.get_meta("card_id", "") == card_id:
-            child.queue_free()
-            break
+
 
 func calculate_base_gold_for_turn(turn: int) -> int:
     """Calculate base gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
@@ -251,6 +214,40 @@ func add_card_to_hand(card_id):
     $MainLayout/PlayerHand.add_child(new_card)
     update_hand_count() # Update the hand count display
 
+func detect_drop_zone(global_pos: Vector2) -> String:
+    """Detect which zone a card is being dropped into"""
+    var hand_rect = $MainLayout/PlayerHand.get_global_rect()
+    var board_rect = $MainLayout/PlayerBoard.get_global_rect()
+    var shop_rect = $MainLayout/ShopArea.get_global_rect()
+    
+    if hand_rect.has_point(global_pos):
+        return "hand"
+    elif board_rect.has_point(global_pos):
+        return "board"
+    elif shop_rect.has_point(global_pos):
+        return "shop"
+    else:
+        return "invalid"
+
+func get_card_origin_zone(card) -> String:
+    """Determine which zone a card originated from"""
+    # Check if card is in shop
+    for shop_card in $MainLayout/ShopArea.get_children():
+        if shop_card == card:
+            return "shop"
+    
+    # Check if card is in hand
+    for hand_card in $MainLayout/PlayerHand.get_children():
+        if hand_card == card:
+            return "hand"
+    
+    # Check if card is on board
+    for board_card in $MainLayout/PlayerBoard.get_children():
+        if board_card == card and board_card.name != "PlayerBoardLabel":
+            return "board"
+    
+    return "unknown"
+
 func _set_all_cards_mouse_filter(filter_mode: int, exclude_card = null):
     """Set mouse filter for all cards in hand, board, and shop (optionally excluding one card)"""
     # Cards in hand
@@ -272,6 +269,11 @@ func _on_card_drag_started(card):
     dragged_card = card # Keep track of the dragged card
     card.mouse_filter = Control.MOUSE_FILTER_IGNORE
     
+    # Store the card's origin zone for drop handling
+    var origin_zone = get_card_origin_zone(card)
+    card.set_meta("origin_zone", origin_zone)
+    print(card.name, " started dragging from ", origin_zone)
+    
     # Set all other cards to ignore mouse events during dragging
     _set_all_cards_mouse_filter(Control.MOUSE_FILTER_IGNORE, card)
     
@@ -279,10 +281,78 @@ func _on_card_drag_started(card):
     card.reparent(self)
     # Ensure the dragged card renders on top of everything else
     card.move_to_front()
-    print(card.name, " started dragging.")
 
 func _on_card_dropped(card):
-    print(card.name, " was dropped.")
+    var origin_zone = card.get_meta("origin_zone", "unknown")
+    var drop_zone = detect_drop_zone(card.global_position)
+    
+    print(card.name, " dropped from ", origin_zone, " to ", drop_zone)
+    
+    # Handle different drop scenarios
+    match [origin_zone, drop_zone]:
+        ["shop", "hand"]:
+            _handle_shop_to_hand_drop(card)
+        ["hand", "hand"]:
+            _handle_hand_reorder_drop(card)
+        ["hand", "board"]:
+            _handle_hand_to_board_drop(card)
+        ["shop", "board"], ["shop", "shop"], ["shop", "invalid"]:
+            _handle_invalid_shop_drop(card)
+        ["hand", "shop"], ["hand", "invalid"]:
+            _handle_invalid_hand_drop(card)
+        _:
+            print("Unhandled drop scenario: ", origin_zone, " -> ", drop_zone)
+            _return_card_to_origin(card, origin_zone)
+    
+    # Restore mouse filters for all cards
+    card.mouse_filter = Control.MOUSE_FILTER_STOP
+    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_STOP)
+    
+    dragged_card = null
+
+func _handle_shop_to_hand_drop(card):
+    """Handle purchasing a card by dragging from shop to hand"""
+    var card_id = card.get_meta("card_id", "")
+    if card_id == "":
+        print("Error: Shop card missing card_id metadata")
+        _return_card_to_shop(card)
+        return
+    
+    var card_data = CardDatabase.get_card_data(card_id)
+    var cost = card_data.get("cost", 3)
+    
+    print("Attempting to purchase ", card_data.get("name", "Unknown"), " for ", cost, " gold via drag")
+    
+    # Check purchase validation (reuse existing logic)
+    if not can_afford(cost):
+        print("Cannot afford card - need ", cost, " gold, have ", current_gold)
+        _return_card_to_shop(card)
+        return
+    
+    if is_hand_full():
+        print("Cannot purchase - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+        _return_card_to_shop(card)
+        return
+    
+    if card_pool.get(card_id, 0) <= 0:
+        print("Card no longer available in pool")
+        _return_card_to_shop(card)
+        return
+    
+    # Execute purchase
+    if spend_gold(cost):
+        # Remove from pool
+        card_pool[card_id] -= 1
+        
+        # Convert shop card to hand card
+        _convert_shop_card_to_hand_card(card, card_id)
+        
+        print("Purchased ", card_data.get("name", "Unknown"), " via drag - Remaining in pool: ", card_pool[card_id])
+    else:
+        _return_card_to_shop(card)
+
+func _handle_hand_reorder_drop(card):
+    """Handle reordering cards within the hand"""
     var cards_in_hand = $MainLayout/PlayerHand.get_children()
     var new_index = -1
 
@@ -292,7 +362,7 @@ func _on_card_dropped(card):
             new_index = i
             break
 
-    # Put the card back into the container
+    # Put the card back into the hand container
     card.reparent($MainLayout/PlayerHand)
 
     # Move it to the calculated position
@@ -301,21 +371,117 @@ func _on_card_dropped(card):
     else:
         # If it was dropped past the last card, move it to the end
         $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
+
+func _handle_hand_to_board_drop(card):
+    """Handle playing a card from hand to board (future feature)"""
+    print("Hand to board not implemented yet - returning to hand")
+    _return_card_to_hand(card)
+
+func _handle_invalid_shop_drop(card):
+    """Handle invalid drops for shop cards"""
+    print("Invalid drop for shop card - returning to shop")
+    _return_card_to_shop(card)
+
+func _handle_invalid_hand_drop(card):
+    """Handle invalid drops for hand cards"""
+    print("Invalid drop for hand card - returning to hand")
+    _return_card_to_hand(card)
+
+func _return_card_to_origin(card, origin_zone: String):
+    """Return card to its original zone"""
+    match origin_zone:
+        "shop":
+            _return_card_to_shop(card)
+        "hand":
+            _return_card_to_hand(card)
+        "board":
+            _return_card_to_board(card)
+        _:
+            print("Cannot return card to unknown origin: ", origin_zone)
+            card.queue_free()
+
+func _return_card_to_shop(card):
+    """Return a card to the shop area"""
+    card.reparent($MainLayout/ShopArea)
+
+func _return_card_to_hand(card):
+    """Return a card to the hand area"""
+    card.reparent($MainLayout/PlayerHand)
+
+func _return_card_to_board(card):
+    """Return a card to the board area"""
+    card.reparent($MainLayout/PlayerBoard)
+
+func _convert_shop_card_to_hand_card(shop_card, card_id: String):
+    """Convert a shop card into a hand card with proper connections"""
+    # Remove the shop card from the shop area first
+    var shop_position = shop_card.get_index()
+    shop_card.queue_free()
     
-    # Restore mouse filters for all cards
-    card.mouse_filter = Control.MOUSE_FILTER_STOP
-    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_STOP)
+    # Create a new hand card with the same data
+    add_card_to_hand_direct(card_id)
     
-    dragged_card = null # Forget the card now that it's dropped
+    # Update counts
+    update_hand_count()
 
 func _unhandled_input(event):
     if dragged_card: # This check is now primary
         if event is InputEventMouseMotion:
             dragged_card.global_position = get_global_mouse_position() - dragged_card.drag_offset
+            # Update visual feedback during drag
+            _update_drop_zone_feedback()
 
         if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+            # Clear visual feedback before dropping
+            _clear_drop_zone_feedback()
             # Manually call the drop function when the mouse is released anywhere
             _on_card_dropped(dragged_card)
+
+func _update_drop_zone_feedback():
+    """Update visual feedback for valid drop zones during dragging"""
+    if not dragged_card:
+        return
+    
+    var origin_zone = dragged_card.get_meta("origin_zone", "unknown")
+    var current_drop_zone = detect_drop_zone(get_global_mouse_position())
+    
+    # Clear all feedback first
+    _clear_drop_zone_feedback()
+    
+    # Show feedback based on origin and current position
+    match [origin_zone, current_drop_zone]:
+        ["shop", "hand"]:
+            # Valid purchase zone
+            _highlight_container($MainLayout/PlayerHand, Color.GREEN)
+        ["hand", "hand"]:
+            # Valid reorder zone
+            _highlight_container($MainLayout/PlayerHand, Color.BLUE)
+        ["hand", "board"]:
+            # Future feature zone
+            _highlight_container($MainLayout/PlayerBoard, Color.YELLOW)
+        ["shop", "board"], ["shop", "shop"]:
+            # Invalid zones for shop cards
+            _highlight_invalid_zone(current_drop_zone)
+
+func _clear_drop_zone_feedback():
+    """Clear all visual feedback for drop zones"""
+    _remove_highlight($MainLayout/PlayerHand)
+    _remove_highlight($MainLayout/PlayerBoard)
+    _remove_highlight($MainLayout/ShopArea)
+
+func _highlight_container(container: Container, color: Color):
+    """Add visual highlight to a container"""
+    # Simple modulation-based highlight
+    container.modulate = Color(color.r, color.g, color.b, 0.8)
+
+func _remove_highlight(container: Container):
+    """Remove visual highlight from a container"""
+    container.modulate = Color.WHITE
+
+func _highlight_invalid_zone(zone_name: String):
+    """Show feedback for invalid drop zones"""
+    # For now, just ensure other zones aren't highlighted
+    pass
 
 func _ready():
     # Initialize game state

@@ -4,14 +4,33 @@ signal card_clicked
 signal drag_started(card)
 #signal dropped(card)
 
-#var is_dragging = false
+var is_being_dragged: bool = false
 var drag_offset = Vector2.ZERO
+var mouse_press_position: Vector2
+const DRAG_THRESHOLD_DISTANCE = 10.0  # pixels before drag starts
         
 func _gui_input(event):
-    if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-        # Calculate the offset and immediately signal that a drag has begun.
-        drag_offset = get_global_mouse_position() - global_position
-        drag_started.emit(self)
+    if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+        if event.pressed:
+            # Record press position but don't start drag yet
+            mouse_press_position = get_global_mouse_position()
+            is_being_dragged = false
+        else:
+            # Mouse released
+            if not is_being_dragged:
+                # It was a click (no drag occurred)
+                card_clicked.emit(self)
+            is_being_dragged = false
+    
+    elif event is InputEventMouseMotion and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+        # Check if we should start dragging
+        if not is_being_dragged:
+            var drag_distance = mouse_press_position.distance_to(get_global_mouse_position())
+            if drag_distance > DRAG_THRESHOLD_DISTANCE:
+                # Start drag
+                drag_offset = get_global_mouse_position() - global_position
+                drag_started.emit(self)
+                is_being_dragged = true
 
 func setup_card_data(data: Dictionary):
     # "data" is a Dictionary with card info
