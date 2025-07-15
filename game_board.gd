@@ -4,24 +4,7 @@ const DEFAULT_PORT = 9999
 const CardScene = preload("res://card.tscn")
 var dragged_card = null
 
-# Our simple card database
-const CARD_DATA = {
-    "fireball": {
-        "name": "Fireball",
-        "description": "Deal 6 damage.",
-        "cost": 4
-    },
-    "frostbolt": {
-        "name": "Frostbolt",
-        "description": "Deal 2 damage and Freeze a character.",
-        "cost": 2
-    },
-    "novice_engineer": {
-        "name": "Novice Engineer",
-        "description": "Battlecry: Draw a card.",
-        "cost": 2
-    }
-}
+
 
 func _on_card_clicked(card_node):
     print("A card was selected: ", card_node.get_node("VBoxContainer/CardName").text)
@@ -29,7 +12,7 @@ func _on_card_clicked(card_node):
 @rpc("any_peer", "call_local")
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
-    var data = CARD_DATA[card_id]
+    var data = CardDatabase.get_card_data(card_id)
     var new_card = CardScene.instantiate()
     new_card.setup_card_data(data)
     new_card.card_clicked.connect(_on_card_clicked)
@@ -80,10 +63,10 @@ func _unhandled_input(event):
 
 func _ready():
     # Deal a specific starting hand
-    add_card_to_hand("fireball")
-    add_card_to_hand("novice_engineer")
-    add_card_to_hand("fireball")
-    add_card_to_hand("frostbolt")
+    add_card_to_hand("murloc_raider")
+    add_card_to_hand("dire_wolf_alpha")
+    add_card_to_hand("rockpool_hunter")
+    add_card_to_hand("kindly_grandmother")
 
 
 func _on_host_button_pressed() -> void:
@@ -106,4 +89,4 @@ func _on_join_button_pressed() -> void:
 
 func _on_draw_button_pressed() -> void:
     # Instead of calling the function directly, we call the RPC
-    add_card_to_hand.rpc("fireball")
+    add_card_to_hand.rpc("murloc_raider")
