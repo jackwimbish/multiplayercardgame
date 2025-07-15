@@ -2,6 +2,7 @@ extends Control
 
 const DEFAULT_PORT = 9999
 const CardScene = preload("res://card.tscn")
+var dragged_card = null
 
 # Our simple card database
 const CARD_DATA = {
@@ -33,10 +34,12 @@ func add_card_to_hand(card_id):
     new_card.setup_card_data(data)
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
-    new_card.dropped.connect(_on_card_dropped)
+    #new_card.dropped.connect(_on_card_dropped)
     $PlayerHand.add_child(new_card)
 
 func _on_card_drag_started(card):
+    dragged_card = card # Keep track of the dragged card
+    card.mouse_filter = Control.MOUSE_FILTER_IGNORE
     # "Lift" the card out of the container by making it a child of the main board
     card.reparent(self)
     # Ensure the dragged card renders on top of everything else
@@ -63,6 +66,17 @@ func _on_card_dropped(card):
     else:
         # If it was dropped past the last card, move it to the end
         $PlayerHand.move_child(card, $PlayerHand.get_child_count() - 1)
+    card.mouse_filter = Control.MOUSE_FILTER_STOP
+    dragged_card = null # Forget the card now that it's dropped
+
+func _unhandled_input(event):
+    if dragged_card: # This check is now primary
+        if event is InputEventMouseMotion:
+            dragged_card.global_position = get_global_mouse_position() - dragged_card.drag_offset
+
+        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+            # Manually call the drop function when the mouse is released anywhere
+            _on_card_dropped(dragged_card)
 
 func _ready():
     # Deal a specific starting hand
