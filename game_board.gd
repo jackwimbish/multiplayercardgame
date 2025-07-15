@@ -6,10 +6,14 @@ var dragged_card = null
 
 # Core game state variables
 var current_turn: int = 1
+var player_base_gold: int = 3
 var current_gold: int = 3
-var max_gold: int = 3
+var bonus_gold: int = 0
 var shop_tier: int = 1
 var card_pool: Dictionary = {}
+
+# Constants
+const GLOBAL_GOLD_MAX = 255
 
 # Hand/board size tracking
 var max_hand_size: int = 10
@@ -44,27 +48,36 @@ func initialize_card_pool():
     
     print("Card pool initialized: ", card_pool)
 
-func calculate_max_gold_for_turn(turn: int) -> int:
-    """Calculate maximum gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
+func calculate_base_gold_for_turn(turn: int) -> int:
+    """Calculate base gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
     if turn <= 1:
         return 3
     elif turn <= 8:
         return 2 + turn  # Turn 2=4 gold, turn 3=5 gold, ..., turn 8=10 gold
     else:
-        return 10  # Maximum of 10 gold from turn 8 onwards
+        return 10  # Maximum base gold of 10 from turn 8 onwards
 
 func start_new_turn():
     """Advance to the next turn and refresh gold"""
     current_turn += 1
-    max_gold = calculate_max_gold_for_turn(current_turn)
-    current_gold = max_gold  # Refresh to full gold
     
-    print("Turn ", current_turn, " started - Gold: ", current_gold, "/", max_gold)
+    # Update base gold from turn progression (but don't decrease it)
+    var new_base_gold = calculate_base_gold_for_turn(current_turn)
+    player_base_gold = max(player_base_gold, new_base_gold)
+    
+    # Refresh current gold (base + any bonus, capped at global max)
+    current_gold = min(player_base_gold + bonus_gold, GLOBAL_GOLD_MAX)
+    bonus_gold = 0  # Reset bonus after applying it
+    
+    print("Turn ", current_turn, " started - Base Gold: ", player_base_gold, ", Current Gold: ", current_gold)
     update_ui_displays()
 
 func update_ui_displays():
     """Update all UI elements with current game state"""
-    $MainLayout/TopUI/GoldLabel.text = "Gold: " + str(current_gold) + "/" + str(max_gold)
+    var gold_text = "Gold: " + str(current_gold) + "/" + str(player_base_gold)
+    if bonus_gold > 0:
+        gold_text += " (+" + str(bonus_gold) + ")"
+    $MainLayout/TopUI/GoldLabel.text = gold_text
     $MainLayout/TopUI/ShopTierLabel.text = "Shop Tier: " + str(shop_tier)
 
 func spend_gold(amount: int) -> bool:
@@ -80,6 +93,24 @@ func spend_gold(amount: int) -> bool:
 func can_afford(cost: int) -> bool:
     """Check if player can afford a given cost"""
     return current_gold >= cost
+
+func increase_base_gold(amount: int):
+    """Permanently increase player's base gold income"""
+    player_base_gold = min(player_base_gold + amount, GLOBAL_GOLD_MAX)
+    print("Base gold increased by ", amount, " to ", player_base_gold)
+    update_ui_displays()
+
+func add_bonus_gold(amount: int):
+    """Add temporary bonus gold for next turn only"""
+    bonus_gold = min(bonus_gold + amount, GLOBAL_GOLD_MAX - player_base_gold)
+    print("Bonus gold added: ", amount, " (total bonus: ", bonus_gold, ")")
+    update_ui_displays()
+
+func gain_gold(amount: int):
+    """Immediately gain current gold (within global limits)"""
+    current_gold = min(current_gold + amount, GLOBAL_GOLD_MAX)
+    print("Gained ", amount, " gold (current: ", current_gold, ")")
+    update_ui_displays()
 
 func get_hand_size() -> int:
     """Get current number of cards in hand"""
@@ -165,10 +196,15 @@ func _ready():
 
 
 func _on_refresh_shop_button_pressed() -> void:
-    print("Refresh shop button pressed - TODO: implement shop refresh")
+    # Temporary test: Add bonus gold (normally this would refresh shop for 1 gold)
+    add_bonus_gold(1)
+    print("TEST: Added 1 bonus gold for next turn")
 
 func _on_upgrade_shop_button_pressed() -> void:
-    print("Upgrade shop button pressed - TODO: implement shop tier upgrade")
+    # Temporary test: Increase base gold (normally this would upgrade shop tier for 5 gold)
+    if spend_gold(2):
+        increase_base_gold(1)
+        print("TEST: Spent 2 gold to increase base gold by 1")
 
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
