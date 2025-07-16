@@ -132,9 +132,10 @@ func get_random_card_for_tier(tier: int) -> String:
 
 func refresh_shop():
     """Clear shop and populate with random cards from current tier"""
-    # Clear existing shop cards
+    # Clear existing shop cards (but keep the ShopAreaLabel)
     for child in $MainLayout/ShopArea.get_children():
-        child.queue_free()
+        if child.name != "ShopAreaLabel":
+            child.queue_free()
     
     var shop_size = get_shop_size_for_tier(shop_tier)
     print("Refreshing shop (tier ", shop_tier, ") with ", shop_size, " cards")
@@ -334,9 +335,9 @@ func detect_drop_zone(global_pos: Vector2) -> String:
 
 func get_card_origin_zone(card) -> String:
     """Determine which zone a card originated from"""
-    # Check if card is in shop
+    # Check if card is in shop (skip the ShopAreaLabel)
     for shop_card in $MainLayout/ShopArea.get_children():
-        if shop_card == card:
+        if shop_card == card and shop_card.name != "ShopAreaLabel":
             return "shop"
     
     # Check if card is in hand
@@ -363,9 +364,9 @@ func _set_all_cards_mouse_filter(filter_mode: int, exclude_card = null):
         if board_card != exclude_card and board_card.name != "PlayerBoardLabel":
             board_card.mouse_filter = filter_mode
     
-    # Cards in shop
+    # Cards in shop (skip the ShopAreaLabel)
     for shop_card in $MainLayout/ShopArea.get_children():
-        if shop_card != exclude_card:
+        if shop_card != exclude_card and shop_card.name != "ShopAreaLabel":
             shop_card.mouse_filter = filter_mode
 
 func _on_card_drag_started(card):
@@ -934,9 +935,10 @@ func switch_to_shop_mode() -> void:
 
 func _hide_shop_elements() -> void:
     """Hide shop cards and shop-related buttons"""
-    # Hide shop cards
+    # Hide shop cards (but keep the ShopAreaLabel visible)
     for child in $MainLayout/ShopArea.get_children():
-        child.visible = false
+        if child.name != "ShopAreaLabel":
+            child.visible = false
     
     # Hide shop-related buttons
     $MainLayout/TopUI/RefreshShopButton.visible = false
@@ -944,7 +946,7 @@ func _hide_shop_elements() -> void:
 
 func _show_shop_elements() -> void:
     """Show shop cards and shop-related buttons"""
-    # Show shop cards
+    # Show shop cards (label should already be visible)
     for child in $MainLayout/ShopArea.get_children():
         child.visible = true
     
@@ -997,7 +999,7 @@ func _clear_enemy_board_from_shop_area() -> void:
             child.name == "EnemyBoardLabel" or
             child.name == "EnemyResultLabel" or
             child.name.begins_with("EnemyResult_") or
-            child.name.begins_with("EnemyDead_")):
+            child.name.begins_with("EnemyDead_")) and child.name != "ShopAreaLabel":
             children_to_remove.append(child)
     
     for child in children_to_remove:

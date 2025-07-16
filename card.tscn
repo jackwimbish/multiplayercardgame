@@ -3,12 +3,12 @@
 [ext_resource type="Script" uid="uid://gapxhmmi8b7w" path="res://card.gd" id="1_kikvd"]
 
 [node name="Card" type="PanelContainer"]
-custom_minimum_size = Vector2(160, 240)
+custom_minimum_size = Vector2(180, 270)
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_right = 160.0
-offset_bottom = 240.0
+offset_right = 180.0
+offset_bottom = 270.0
 grow_horizontal = 0
 grow_vertical = 0
 script = ExtResource("1_kikvd")
@@ -25,7 +25,7 @@ horizontal_alignment = 1
 autowrap_mode = 3
 
 [node name="CardArt" type="TextureRect" parent="VBoxContainer"]
-custom_minimum_size = Vector2(140, 100)
+custom_minimum_size = Vector2(158, 112)
 layout_mode = 2
 size_flags_vertical = 0
 mouse_filter = 2

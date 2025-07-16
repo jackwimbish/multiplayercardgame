@@ -45,12 +45,17 @@ layout_mode = 2
 text = "End Turn"
 
 [node name="ShopArea" type="HBoxContainer" parent="MainLayout"]
-custom_minimum_size = Vector2(0, 250)
+custom_minimum_size = Vector2(0, 280)
 layout_mode = 2
 size_flags_vertical = 0
 
+[node name="ShopAreaLabel" type="Label" parent="MainLayout/ShopArea"]
+layout_mode = 2
+size_flags_horizontal = 0
+text = "Shop"
+
 [node name="PlayerBoard" type="HBoxContainer" parent="MainLayout"]
-custom_minimum_size = Vector2(0, 250)
+custom_minimum_size = Vector2(0, 280)
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -60,7 +65,7 @@ size_flags_horizontal = 0
 text = "Your Board (0/7)"
 
 [node name="PlayerHand" type="HBoxContainer" parent="MainLayout"]
-custom_minimum_size = Vector2(0, 250)
+custom_minimum_size = Vector2(0, 280)
 layout_mode = 2
 size_flags_vertical = 0
 

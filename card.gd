@@ -23,8 +23,8 @@ func _set_default_size():
     set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
     
     # Set consistent size constraints
-    custom_minimum_size = Vector2(160, 240)
-    size = Vector2(160, 240)
+    custom_minimum_size = Vector2(180, 270)
+    size = Vector2(180, 270)
     
     # Prevent expansion in containers
     size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -60,6 +60,9 @@ func setup_card_data(data: Dictionary):
     # Set up UI elements
     $VBoxContainer/CardName.text = data.get("name", "Unnamed")
     
+    # Make card name larger
+    $VBoxContainer/CardName.add_theme_font_size_override("font_size", 18)
+    
     # Set description with dynamic font sizing
     var description = data.get("description", "")
     $VBoxContainer/CardDescription.text = description
@@ -69,6 +72,7 @@ func setup_card_data(data: Dictionary):
     if data.has("attack") and data.has("health"):
         # This will be overridden in MinionCard
         $VBoxContainer/BottomRow/StatsLabel.text = str(data.get("attack", 0)) + "/" + str(data.get("health", 0))
+        $VBoxContainer/BottomRow/StatsLabel.add_theme_font_size_override("font_size", 20)
         $VBoxContainer/BottomRow/StatsLabel.show()
     else:
         # Hide stats for spells or cards without both attack and health
@@ -94,11 +98,11 @@ func _adjust_description_font_size(description: String) -> void:
     # Determine font size based on text length
     var font_size: int
     if description.length() <= 30:
-        font_size = 12  # Normal size for short descriptions
+        font_size = 20  # Normal size for short descriptions
     elif description.length() <= 60:
-        font_size = 10  # Smaller for medium descriptions  
+        font_size = 18  # Smaller for medium descriptions  
     else:
-        font_size = 8   # Smallest for long descriptions
+        font_size = 16  # Smallest for long descriptions
     
     # Apply the font size
     description_label.add_theme_font_size_override("font_size", font_size)
