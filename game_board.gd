@@ -906,6 +906,16 @@ func format_combat_action(action: Dictionary) -> String:
             return "%s loses automatically (%s)" % [action.get("loser", "?"), action.get("reason", "?")]
         "turn_start":
             return "[b][color=cyan]Turn %d begins![/color][/b] Gold and shop refreshed." % action.get("turn", 0)
+        "first_attacker":
+            var attacker = action.get("attacker", "unknown")
+            var reason = action.get("reason", "unknown")
+            match reason:
+                "more_minions":
+                    return "[b]%s attacks first (more minions)[/b]" % attacker.capitalize()
+                "random_equal_minions":
+                    return "[b]%s attacks first (equal minions, random choice)[/b]" % attacker.capitalize()
+                _:
+                    return "[b]%s attacks first (%s)[/b]" % [attacker.capitalize(), reason]
         _:
             return "Unknown action: %s" % str(action)
 
@@ -953,11 +963,10 @@ func pick_random_from_array(array: Array):
     return array[randi() % array.size()]
 
 func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
-    """Enhanced combat algorithm with round-robin attacking and detailed logging"""
+    """Enhanced combat algorithm with improved turn-based logic"""
     var action_log = []
     var p_attacker_index = 0
     var e_attacker_index = 0
-    var p_turn = true
     var attack_count = 0
     var max_attacks = 500
     
@@ -967,45 +976,62 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         "enemy_minions": enemy_minions.size()
     })
     
-    # Check for auto-loss/tie conditions
-    if player_minions.is_empty() and enemy_minions.is_empty():
-        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-        action_log.append({"type": "turn_start", "turn": current_turn + 1})
-        start_new_turn()
-        return action_log
+    # Determine who goes first: more minions = first attack, equal count = random
+    var p_turn: bool
+    if player_minions.size() > enemy_minions.size():
+        p_turn = true
+        action_log.append({"type": "first_attacker", "attacker": "player", "reason": "more_minions"})
+    elif enemy_minions.size() > player_minions.size():
+        p_turn = false
+        action_log.append({"type": "first_attacker", "attacker": "enemy", "reason": "more_minions"})
+    else:
+        # Equal minions - random first attacker
+        p_turn = randi() % 2 == 0
+        var first_attacker = "player" if p_turn else "enemy"
+        action_log.append({"type": "first_attacker", "attacker": first_attacker, "reason": "random_equal_minions"})
     
-    if player_minions.is_empty():
-        action_log.append({"type": "auto_loss", "loser": "player", "reason": "no_minions"})
-        take_damage(combat_damage, true)
-        action_log.append({"type": "turn_start", "turn": current_turn + 1})
-        start_new_turn()
-        return action_log
-    
-    if enemy_minions.is_empty():
-        action_log.append({"type": "auto_loss", "loser": "enemy", "reason": "no_minions"})
-        take_damage(combat_damage, false)
-        action_log.append({"type": "turn_start", "turn": current_turn + 1})
-        start_new_turn()
-        return action_log
-    
-    # Main combat loop - round-robin attacking
-    while not player_minions.is_empty() and not enemy_minions.is_empty() and attack_count < max_attacks:
+    # Main combat loop - check turn conditions before each attack
+    while attack_count < max_attacks:
+        # Check if current player can attack
+        if p_turn:
+            # Player's turn
+            if player_minions.is_empty():
+                if enemy_minions.is_empty():
+                    action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+                    break
+                else:
+                    action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
+                    take_damage(combat_damage, true)
+                    break
+        else:
+            # Enemy's turn
+            if enemy_minions.is_empty():
+                if player_minions.is_empty():
+                    action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+                    break
+                else:
+                    action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
+                    take_damage(combat_damage, false)
+                    break
+        
+        # Current player has minions - select attacker and defender
         var attacker
         var defender
         
-        # Select attacker and defender based on round-robin
         if p_turn:
+            # Player attacks
             if p_attacker_index >= player_minions.size(): 
                 p_attacker_index = 0
             attacker = player_minions[p_attacker_index]
             defender = pick_random_from_array(enemy_minions)
         else:
+            # Enemy attacks
             if e_attacker_index >= enemy_minions.size(): 
                 e_attacker_index = 0
             attacker = enemy_minions[e_attacker_index]
             defender = pick_random_from_array(player_minions)
         
-        # Execute attack
+        # Execute attack (even 0-damage attacks count as attempts)
         execute_attack(attacker, defender, action_log)
         attack_count += 1
         
@@ -1020,15 +1046,9 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
             e_attacker_index += 1
         p_turn = not p_turn
     
-    # Determine combat result
+    # Handle max attacks reached
     if attack_count >= max_attacks:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
-    elif player_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "enemy"})
-        take_damage(combat_damage, true)
-    elif enemy_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "player"})
-        take_damage(combat_damage, false)
     
     # After combat ends, start the next turn
     action_log.append({"type": "turn_start", "turn": current_turn + 1})
@@ -1342,27 +1362,28 @@ func test_enhanced_combat_algorithm() -> void:
         
         print("Combat result: %d actions logged" % combat_log.size())
         
-        # Display first few and last few actions for summary
-        var display_count = min(5, combat_log.size())
-        print("First %d actions:" % display_count)
-        for i in range(display_count):
-            print("  %d: %s" % [i + 1, format_combat_action(combat_log[i])])
+        # Highlight key combat features
+        print("Key combat events:")
+        for i in range(min(3, combat_log.size())):
+            var action = combat_log[i]
+            if action.get("type") in ["combat_start", "first_attacker"]:
+                print("  %s" % format_combat_action(action))
         
-        if combat_log.size() > 10:
-            print("  ... (%d actions omitted) ..." % (combat_log.size() - 10))
-            print("Last %d actions:" % display_count)
-            for i in range(combat_log.size() - display_count, combat_log.size()):
-                print("  %d: %s" % [i + 1, format_combat_action(combat_log[i])])
+        # Show some attack examples
+        var attack_count = 0
+        for action in combat_log:
+            if action.get("type") == "attack" and attack_count < 3:
+                print("  Attack example: %s" % format_combat_action(action))
+                attack_count += 1
         
-        # Show final result
-        var final_action = combat_log[combat_log.size() - 1]
-        match final_action.get("type", ""):
-            "combat_end":
-                print("RESULT: %s wins!" % final_action.get("winner", "unknown"))
-            "combat_tie":
-                print("RESULT: Tie! (%s)" % final_action.get("reason", "unknown"))
-            "auto_loss":
-                print("RESULT: %s loses automatically (%s)" % [final_action.get("loser", "unknown"), final_action.get("reason", "unknown")])
+        # Show final resolution
+        if combat_log.size() > 1:
+            # Look for the combat result (before turn_start)
+            for i in range(combat_log.size() - 1, -1, -1):
+                var action = combat_log[i]
+                if action.get("type") in ["combat_end", "combat_tie"]:
+                    print("  Final result: %s" % format_combat_action(action))
+                    break
         
         print("Current health - Player: %d, Enemy: %d" % [player_health, enemy_health])
         print("Post-combat state: Turn %d, Gold %d/%d" % [current_turn, current_gold, player_base_gold])
