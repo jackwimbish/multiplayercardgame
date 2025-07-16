@@ -842,7 +842,7 @@ func create_combat_ui() -> void:
     combat_log_display.custom_minimum_size = Vector2(400, 200)
     combat_log_display.bbcode_enabled = true
     combat_log_display.scroll_following = true
-    combat_log_display.text = "[b]Combat Log[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
+    combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
     
     # Add all elements to combat UI container
     combat_ui_container.add_child(health_container)
@@ -918,6 +918,10 @@ func switch_to_shop_mode() -> void:
     
     # Restore original player board (in case we were in result view)
     _restore_original_player_board()
+    
+    # Reset battle selection display (clear previous combat log)
+    if combat_log_display:
+        combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
     
     # Update combat UI for shop mode
     _update_combat_ui_for_shop_mode()
@@ -1018,7 +1022,7 @@ func _update_combat_ui_for_combat_mode() -> void:
     if not combat_view_toggle_button:
         combat_view_toggle_button = Button.new()
         combat_view_toggle_button.name = "CombatViewToggleButton"
-        combat_view_toggle_button.text = "Show Combat Result"
+        combat_view_toggle_button.text = "Show Battle Result"
         combat_ui_container.add_child(combat_view_toggle_button)
         combat_view_toggle_button.pressed.connect(_on_combat_view_toggle_pressed)
     
@@ -1226,7 +1230,7 @@ func display_combat_log(action_log: Array) -> void:
         return
         
     combat_log_display.clear()
-    combat_log_display.append_text("[b]COMBAT LOG[/b]\n\n")
+    combat_log_display.append_text("[b]BATTLE LOG[/b]\n\n")
     
     for action in action_log:
         var log_line = format_combat_action(action)
@@ -1306,12 +1310,12 @@ func _on_combat_view_toggle_pressed() -> void:
     if current_combat_view == "log":
         # Switch to result view
         current_combat_view = "result"
-        combat_view_toggle_button.text = "Show Combat Log"
+        combat_view_toggle_button.text = "Show Battle Log"
         _show_combat_result_view()
     else:
         # Switch to log view
         current_combat_view = "log"
-        combat_view_toggle_button.text = "Show Combat Result"
+        combat_view_toggle_button.text = "Show Battle Result"
         _show_combat_log_view()
     
     print("Toggled combat view to: %s" % current_combat_view)
