@@ -708,6 +708,8 @@ func _ready():
     update_hand_count()
     update_board_count()
     
+    # Enemy board system is ready - call test_enemy_board_system() manually to test
+    
     # Initialize shop with cards
     refresh_shop()
     
@@ -735,3 +737,29 @@ func _on_upgrade_shop_button_pressed() -> void:
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
     start_new_turn()
+
+# Test function temporarily commented out due to linter issues with new classes
+# Uncomment after reloading project to register new classes
+#func test_enemy_board_system() -> void:
+#    """Test function to validate enemy board system (can be called from debugger)"""
+#    print("\n=== Enemy Board System Test ===")
+#    
+#    # Test getting board names
+#    var board_names = EnemyBoards.get_enemy_board_names()
+#    print("Available enemy boards: ", board_names)
+#    
+#    # Test each board
+#    for board_name in board_names:
+#        print("\n--- Testing: ", board_name, " ---")
+#        var board_data = EnemyBoards.create_enemy_board(board_name)
+#        
+#        if EnemyBoards.validate_enemy_board(board_data):
+#            var info = EnemyBoards.get_enemy_board_info(board_name)
+#            print("✅ %s: %d minions, %d health" % [info.name, info.minion_count, info.health])
+#            for minion in info.minions:
+#                var buff_indicator = " (buffed)" if minion.has_buffs else ""
+#                print("   - %s: %s → %s%s" % [minion.name, minion.base_stats, minion.effective_stats, buff_indicator])
+#        else:
+#            print("❌ Validation failed for: ", board_name)
+#    
+#    print("===============================\n")
