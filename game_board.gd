@@ -712,20 +712,24 @@ func _cast_spell(spell_card, card_data: Dictionary):
 
 # NEW: Tavern Phase Buff Application Functions
 
-func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion: Card
+func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion: MinionCard
     """Apply persistent buff during tavern phase"""
     if target_minion == null or buff == null:
         print("Invalid target minion or buff")
         return
     
+    # Verify this is a minion that can receive buffs
+    if not target_minion.has_method("add_persistent_buff"):
+        print("Target is not a minion card - cannot apply buff")
+        return
+    
     # Set buff as permanent since it's applied during tavern phase
-    if buff.has_method("set"):
-        buff.duration = 0  # Buff.Duration.PERMANENT = 0
+    buff.duration = Buff.Duration.PERMANENT
     
     # Add to persistent buffs (survives between combats)
     target_minion.add_persistent_buff(buff)
     
-    print("Applied %s to %s during tavern phase" % [buff.get("display_name", "Unknown Buff"), target_minion.card_data.get("name", "Unknown")])
+    print("Applied %s to %s during tavern phase" % [buff.display_name, target_minion.card_data.get("name", "Unknown")])
 
 func apply_tavern_upgrade_all_minions(attack_bonus: int, health_bonus: int) -> void:
     """Apply tavern upgrade buff to all board minions"""
@@ -756,21 +760,17 @@ func find_minion_by_unique_id(unique_id: String):  # -> Card
             return child
     return null
 
-func create_stat_modification_buff(buff_id: String, display_name: String, attack_bonus: int, health_bonus: int):
-    """Create a stat modification buff (helper function until buff classes are loaded)"""
-    # This is a temporary implementation using Dictionary until buff classes are properly loaded
-    return {
-        "buff_id": buff_id,
-        "display_name": display_name,
-        "attack_bonus": attack_bonus,
-        "health_bonus": health_bonus,
-        "max_health_bonus": health_bonus,  # Health bonus also increases max health
-        "buff_type": 0,  # STAT_MODIFICATION = 0
-        "duration": 0,   # PERMANENT = 0
-        "stackable": false,
-        "apply_to_minion": func(minion): pass,  # Placeholder function
-        "remove_from_minion": func(minion): pass  # Placeholder function
-    }
+func create_stat_modification_buff(buff_id: String, display_name: String, attack_bonus: int, health_bonus: int) -> StatModificationBuff:
+    """Create a stat modification buff using the proper buff class"""
+    var buff = StatModificationBuff.new()
+    buff.buff_id = buff_id
+    buff.display_name = display_name
+    buff.attack_bonus = attack_bonus
+    buff.health_bonus = health_bonus
+    buff.max_health_bonus = health_bonus  # Health bonus also increases max health
+    buff.duration = Buff.Duration.PERMANENT  # Use proper enum value
+    buff.stackable = false
+    return buff
 
 # Test function for the buff system
 func test_buff_system() -> void:
@@ -819,6 +819,152 @@ func test_buff_system() -> void:
     
     print("========================\n")
 
+# Test function for CombatMinion system
+func test_combat_minion_system() -> void:
+    """Test CombatMinion creation from board minions and enemy data"""
+    print("\n=== Combat Minion System Test ===")
+    
+    # Test 1: Create CombatMinion from board minion
+    print("\n--- Test 1: Board Minion → CombatMinion ---")
+    var board_minions = []
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
+            board_minions.append(child)
+    
+    if board_minions.size() > 0:
+        var test_minion = board_minions[0]
+        print("Creating CombatMinion from: %s (%d/%d)" % [
+            test_minion.card_data.get("name", "Unknown"),
+            test_minion.get_effective_attack(),
+            test_minion.get_effective_health()
+        ])
+        
+        var combat_minion = CombatMinion.create_from_board_minion(test_minion, "test_combat_1")
+        
+        print("✅ CombatMinion created:")
+        print("   - ID: %s" % combat_minion.minion_id)
+        print("   - Stats: %d/%d (base: %d/%d)" % [
+            combat_minion.current_attack,
+            combat_minion.current_health,
+            combat_minion.base_attack,
+            combat_minion.base_health
+        ])
+        print("   - Combat buffs: %d" % combat_minion.combat_buffs.size())
+    else:
+        print("❌ No board minions found to test")
+    
+    # Test 2: Create CombatMinion from enemy data
+    print("\n--- Test 2: Enemy Data → CombatMinion ---")
+    var enemy_board_data = EnemyBoards.create_enemy_board("mid_game")
+    if not enemy_board_data.is_empty() and enemy_board_data.has("minions"):
+        var enemy_minion_data = enemy_board_data.minions[0]  # First enemy minion
+        
+        print("Creating CombatMinion from enemy: %s" % enemy_minion_data.get("card_id", "Unknown"))
+        if enemy_minion_data.has("buffs"):
+            print("   - Has %d predefined buffs" % enemy_minion_data.buffs.size())
+        
+        var enemy_combat_minion = CombatMinion.create_from_enemy_data(enemy_minion_data, "enemy_combat_1")
+        
+        print("✅ Enemy CombatMinion created:")
+        print("   - ID: %s" % enemy_combat_minion.minion_id)
+        print("   - Stats: %d/%d" % [enemy_combat_minion.current_attack, enemy_combat_minion.current_health])
+        print("   - Combat buffs: %d" % enemy_combat_minion.combat_buffs.size())
+    else:
+        print("❌ Could not load enemy board data")
+    
+    # Test 3: Test adding combat buff
+    print("\n--- Test 3: Adding Combat Buff ---")
+    if board_minions.size() > 0:
+        var test_minion = board_minions[0]
+        var combat_minion = CombatMinion.create_from_board_minion(test_minion, "test_combat_buff")
+        
+        print("Before buff: %d/%d" % [combat_minion.current_attack, combat_minion.current_health])
+        
+        # Create a temporary combat buff
+        var combat_buff = create_stat_modification_buff(
+            "temp_combat_buff",
+            "+2/+2 Combat Buff",
+            2, 2
+        )
+        
+        combat_minion.add_combat_buff(combat_buff)
+        
+        print("After +2/+2 buff: %d/%d" % [combat_minion.current_attack, combat_minion.current_health])
+        print("✅ Combat buff system working")
+    
+    print("================================\n")
+
+# Combat preparation functions
+func create_player_combat_army() -> Array:
+    """Create CombatMinion array from player's board"""
+    var combat_army = []
+    var minion_index = 0
+    
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
+            var combat_id = "player_minion_%d_%s" % [minion_index, str(Time.get_ticks_msec())]
+            var combat_minion = CombatMinion.create_from_board_minion(child, combat_id)
+            combat_minion.position = minion_index
+            combat_army.append(combat_minion)
+            minion_index += 1
+    
+    print("Created player combat army: %d minions" % combat_army.size())
+    return combat_army
+
+func create_enemy_combat_army(enemy_board_name: String) -> Array:
+    """Create CombatMinion array from enemy board configuration"""
+    var combat_army = []
+    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
+    
+    if enemy_board_data.is_empty():
+        print("Failed to load enemy board: %s" % enemy_board_name)
+        return combat_army
+    
+    var minion_index = 0
+    for enemy_minion_data in enemy_board_data.get("minions", []):
+        var combat_id = "enemy_minion_%d_%s" % [minion_index, str(Time.get_ticks_msec())]
+        var combat_minion = CombatMinion.create_from_enemy_data(enemy_minion_data, combat_id)
+        combat_minion.position = minion_index
+        combat_army.append(combat_minion)
+        minion_index += 1
+    
+    print("Created enemy combat army (%s): %d minions" % [enemy_board_name, combat_army.size()])
+    return combat_army
+
+func simulate_combat_preparation(enemy_board_name: String = "mid_game") -> Dictionary:
+    """Simulate preparing for combat - creates both armies"""
+    print("\n=== Combat Preparation Simulation ===")
+    
+    var player_army = create_player_combat_army()
+    var enemy_army = create_enemy_combat_army(enemy_board_name)
+    
+    print("Player army:")
+    for minion in player_army:
+        print("  - %s: %d/%d (pos %d)" % [
+            minion.source_card_id,
+            minion.current_attack,
+            minion.current_health,
+            minion.position
+        ])
+    
+    print("Enemy army (%s):" % enemy_board_name)
+    for minion in enemy_army:
+        print("  - %s: %d/%d (pos %d, buffs: %d)" % [
+            minion.source_card_id,
+            minion.current_attack,
+            minion.current_health,
+            minion.position,
+            minion.combat_buffs.size()
+        ])
+    
+    print("===================================\n")
+    
+    return {
+        "player_army": player_army,
+        "enemy_army": enemy_army,
+        "enemy_board_name": enemy_board_name
+    }
+
 func _ready():
     # Initialize game state
     initialize_card_pool()
@@ -854,7 +1000,11 @@ func _on_upgrade_shop_button_pressed() -> void:
 
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
-    start_new_turn()
+    # TEST: Run combat minion system test instead of normal end turn
+    test_combat_minion_system()
+    simulate_combat_preparation("mid_game")
+    # Uncomment below for normal end turn behavior:
+    # start_new_turn()
 
 # Test function temporarily commented out due to linter issues with new classes
 # Uncomment after reloading project to register new classes

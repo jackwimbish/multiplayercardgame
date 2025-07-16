@@ -3,8 +3,8 @@ extends Resource
 
 @export var source_card_id: String  # Reference to original card
 @export var minion_id: String  # Unique combat identifier
-@export var combat_buffs: Array[Buff] = []
-@export var source_board_minion: Card  # Reference to original board minion
+@export var combat_buffs: Array = []  # Array[Buff] - untyped to avoid linter issues
+@export var source_board_minion = null  # Card - untyped to avoid linter issues
 
 # Combat stats (includes persistent buffs)
 @export var base_attack: int
@@ -19,7 +19,7 @@ extends Resource
 @export var position: int = 0
 @export var keyword_abilities: Dictionary = {}
 
-static func create_from_board_minion(board_minion: Card, combat_id: String) -> CombatMinion:
+static func create_from_board_minion(board_minion, combat_id: String) -> CombatMinion:  # board_minion: Card
 	"""Create a combat minion from a board minion card"""
 	var combat_minion = CombatMinion.new()
 	combat_minion.source_card_id = board_minion.card_data.get("id", "unknown")
@@ -59,7 +59,7 @@ static func create_from_enemy_data(enemy_data: Dictionary, combat_id: String) ->
 	
 	return combat_minion
 
-func add_combat_buff(buff: Buff) -> void:
+func add_combat_buff(buff) -> void:  # buff: Buff
 	"""Add a temporary combat buff to this minion"""
 	if not buff.stackable:
 		remove_combat_buff_by_id(buff.buff_id)

@@ -15,19 +15,4 @@ func apply_to_minion(minion) -> void:
 func remove_from_minion(minion) -> void:
 	"""Remove keyword ability from a minion"""
 	if minion.has_method("remove_keyword_ability"):
-		minion.remove_keyword_ability(ability_name)
-
-func duplicate() -> KeywordAbilityBuff:
-	"""Create a deep copy of this buff"""
-	var copy = KeywordAbilityBuff.new()
-	copy.buff_id = buff_id
-	copy.display_name = display_name
-	copy.description = description
-	copy.duration = duration
-	copy.turns_remaining = turns_remaining
-	copy.source_id = source_id
-	copy.stackable = stackable
-	copy.properties = properties.duplicate()
-	copy.ability_name = ability_name
-	copy.ability_data = ability_data.duplicate()
-	return copy 
+		minion.remove_keyword_ability(ability_name) 

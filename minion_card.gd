@@ -32,20 +32,20 @@ func add_persistent_buff(buff) -> void:  # buff: Buff - untyped to avoid linter 
     """Add a persistent buff that survives between combats"""
     if buff != null and buff.has_method("apply_to_minion"):
         # Remove existing buff if not stackable
-        if not buff.get("stackable", false):
-            remove_persistent_buff_by_id(buff.get("buff_id", ""))
+        if not buff.stackable:
+            remove_persistent_buff_by_id(buff.buff_id)
         
         persistent_buffs.append(buff)
         update_display_stats()
-        print("Added persistent buff to %s: %s" % [card_data.get("name", "Unknown"), buff.get("display_name", "Unnamed Buff")])
+        print("Added persistent buff to %s: %s" % [card_data.get("name", "Unknown"), buff.display_name])
 
 func remove_persistent_buff_by_id(buff_id: String) -> void:
     """Remove a persistent buff by its ID"""
     for i in range(persistent_buffs.size() - 1, -1, -1):
-        if persistent_buffs[i].get("buff_id", "") == buff_id:
+        if persistent_buffs[i].buff_id == buff_id:
             var removed_buff = persistent_buffs[i]
             persistent_buffs.remove_at(i)
-            print("Removed persistent buff from %s: %s" % [card_data.get("name", "Unknown"), removed_buff.get("display_name", "Unnamed Buff")])
+            print("Removed persistent buff from %s: %s" % [card_data.get("name", "Unknown"), removed_buff.display_name])
     update_display_stats()
 
 func get_effective_attack() -> int:
@@ -53,8 +53,8 @@ func get_effective_attack() -> int:
     var total = base_attack
     for buff in persistent_buffs:
         # Check if it's a StatModificationBuff (using duck typing)
-        if buff.has_method("apply_to_minion") and buff.get("buff_type") == 0:  # STAT_MODIFICATION = 0
-            total += buff.get("attack_bonus", 0)
+        if buff.has_method("apply_to_minion") and buff.buff_type == Buff.BuffType.STAT_MODIFICATION:
+            total += buff.attack_bonus
     return total
 
 func get_effective_health() -> int:
@@ -62,8 +62,8 @@ func get_effective_health() -> int:
     var total = base_health
     for buff in persistent_buffs:
         # Check if it's a StatModificationBuff (using duck typing)
-        if buff.has_method("apply_to_minion") and buff.get("buff_type") == 0:  # STAT_MODIFICATION = 0
-            total += buff.get("health_bonus", 0)
+        if buff.has_method("apply_to_minion") and buff.buff_type == Buff.BuffType.STAT_MODIFICATION:
+            total += buff.health_bonus
     return total
 
 func update_display_stats() -> void:
@@ -84,8 +84,8 @@ func get_health_buff_bonus() -> int:
     """Get total health bonus from all persistent buffs"""
     var bonus = 0
     for buff in persistent_buffs:
-        if buff.has_method("apply_to_minion") and buff.get("buff_type") == 0:  # STAT_MODIFICATION = 0
-            bonus += buff.get("health_bonus", 0)
+        if buff.has_method("apply_to_minion") and buff.buff_type == Buff.BuffType.STAT_MODIFICATION:  # STAT_MODIFICATION = 0
+            bonus += buff.health_bonus
     return bonus
 
 func take_damage(amount: int) -> void:
