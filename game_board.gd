@@ -21,6 +21,14 @@ signal player_health_changed(new_health: int)
 signal enemy_health_changed(new_health: int)
 signal game_over(winner: String)
 
+# Combat UI Integration (Phase 2B.2)
+var enemy_board_selector: OptionButton
+var combat_log_display: RichTextLabel  
+var player_health_label: Label
+var enemy_health_label: Label
+var start_combat_button: Button
+var combat_ui_container: VBoxContainer
+
 # Constants
 const GLOBAL_GOLD_MAX = 255
 
@@ -765,6 +773,220 @@ func set_enemy_health(health: int) -> void:
     enemy_health_changed.emit(enemy_health)
     print("Enemy health set to: %d" % enemy_health)
 
+# Combat UI Integration Functions (Phase 2B.2)
+
+func create_combat_ui() -> void:
+    """Create combat UI elements programmatically"""
+    # Create main combat UI container
+    combat_ui_container = VBoxContainer.new()
+    combat_ui_container.name = "CombatUI"
+    
+    # Add to the main layout (position it near the top UI)
+    $MainLayout.add_child(combat_ui_container)
+    $MainLayout.move_child(combat_ui_container, 1)  # Place after TopUI
+    
+    # Create health display container
+    var health_container = HBoxContainer.new()
+    health_container.name = "HealthContainer"
+    
+    # Player health label
+    player_health_label = Label.new()
+    player_health_label.name = "PlayerHealthLabel"
+    player_health_label.text = "Player Health: %d" % player_health
+    player_health_label.add_theme_color_override("font_color", Color.GREEN)
+    
+    # Enemy health label  
+    enemy_health_label = Label.new()
+    enemy_health_label.name = "EnemyHealthLabel"
+    enemy_health_label.text = "Enemy Health: %d" % enemy_health
+    enemy_health_label.add_theme_color_override("font_color", Color.RED)
+    
+    health_container.add_child(player_health_label)
+    health_container.add_child(enemy_health_label)
+    
+    # Create enemy board selection container
+    var enemy_selection_container = HBoxContainer.new()
+    enemy_selection_container.name = "EnemySelectionContainer"
+    
+    var enemy_label = Label.new()
+    enemy_label.text = "Enemy Board: "
+    
+    enemy_board_selector = OptionButton.new()
+    enemy_board_selector.name = "EnemyBoardSelector"
+    
+    enemy_selection_container.add_child(enemy_label)
+    enemy_selection_container.add_child(enemy_board_selector)
+    
+    # Create start combat button
+    start_combat_button = Button.new()
+    start_combat_button.name = "StartCombatButton"
+    start_combat_button.text = "Start Combat"
+    
+    # Create combat log display
+    combat_log_display = RichTextLabel.new()
+    combat_log_display.name = "CombatLogDisplay"
+    combat_log_display.custom_minimum_size = Vector2(400, 200)
+    combat_log_display.bbcode_enabled = true
+    combat_log_display.scroll_following = true
+    combat_log_display.text = "[b]Combat Log[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
+    
+    # Add all elements to combat UI container
+    combat_ui_container.add_child(health_container)
+    combat_ui_container.add_child(enemy_selection_container)
+    combat_ui_container.add_child(start_combat_button)
+    combat_ui_container.add_child(combat_log_display)
+    
+    print("Combat UI created successfully")
+
+func populate_enemy_board_selector() -> void:
+    """Populate enemy board dropdown with available options"""
+    if not enemy_board_selector:
+        return
+        
+    enemy_board_selector.clear()
+    
+    # Add enemy board options
+    for board_name in EnemyBoards.get_enemy_board_names():
+        var board_data = EnemyBoards.create_enemy_board(board_name)
+        enemy_board_selector.add_item(board_data.get("name", board_name))
+        
+    print("Enemy board selector populated with %d options" % enemy_board_selector.get_item_count())
+
+func connect_combat_ui_signals() -> void:
+    """Connect combat UI element signals"""
+    if start_combat_button:
+        start_combat_button.pressed.connect(_on_start_combat_button_pressed)
+        
+    if enemy_board_selector:
+        enemy_board_selector.item_selected.connect(_on_enemy_board_selected)
+        
+    print("Combat UI signals connected")
+
+func update_health_displays() -> void:
+    """Update health display labels"""
+    if player_health_label:
+        player_health_label.text = "Player Health: %d" % player_health
+        
+    if enemy_health_label:
+        enemy_health_label.text = "Enemy Health: %d" % enemy_health
+
+func display_combat_log(action_log: Array) -> void:
+    """Display combat actions in the combat log"""
+    if not combat_log_display:
+        return
+        
+    combat_log_display.clear()
+    combat_log_display.append_text("[b]COMBAT LOG[/b]\n\n")
+    
+    for action in action_log:
+        var log_line = format_combat_action(action)
+        combat_log_display.append_text(log_line + "\n")
+
+func format_combat_action(action: Dictionary) -> String:
+    """Format a combat action for display"""
+    match action.get("type", ""):
+        "combat_start":
+            return "Combat begins! Player: %d minions vs Enemy: %d minions" % [action.get("player_minions", 0), action.get("enemy_minions", 0)]
+        "attack":
+            return "%s attacks %s (%d vs %d)" % [action.get("attacker_id", "?"), action.get("defender_id", "?"), action.get("attacker_attack", 0), action.get("defender_attack", 0)]
+        "damage":
+            return "%s takes %d damage (health: %d)" % [action.get("target_id", "?"), action.get("amount", 0), action.get("new_health", 0)]
+        "death":
+            return "%s dies!" % action.get("target_id", "?")
+        "combat_end":
+            return "Combat ends! Winner: %s" % action.get("winner", "?")
+        "combat_tie":
+            var reason = action.get("reason", "unknown")
+            match reason:
+                "both_no_minions":
+                    return "Combat tied! Neither player has minions"
+                _:
+                    return "Combat tied! (%s)" % reason
+        "auto_loss":
+            return "%s loses automatically (%s)" % [action.get("loser", "?"), action.get("reason", "?")]
+        _:
+            return "Unknown action: %s" % str(action)
+
+# Combat UI Event Handlers (Phase 2B.2)
+
+func _on_start_combat_button_pressed() -> void:
+    """Handle start combat button press"""
+    if not enemy_board_selector:
+        print("Error: Enemy board selector not available")
+        return
+        
+    var selected_index = enemy_board_selector.selected
+    var board_names = EnemyBoards.get_enemy_board_names()
+    
+    if selected_index < 0 or selected_index >= board_names.size():
+        print("Error: Invalid enemy board selection")
+        return
+        
+    var selected_board_name = board_names[selected_index]
+    print("Starting combat against: %s" % selected_board_name)
+    
+    # Run combat simulation and display results
+    var combat_result = simulate_full_combat(selected_board_name)
+    display_combat_log(combat_result)
+
+func _on_enemy_board_selected(index: int) -> void:
+    """Handle enemy board selection change"""
+    var board_names = EnemyBoards.get_enemy_board_names()
+    if index >= 0 and index < board_names.size():
+        var selected_board = board_names[index]
+        var board_data = EnemyBoards.create_enemy_board(selected_board)
+        
+        # Update enemy health based on selected board
+        if board_data.has("health"):
+            set_enemy_health(board_data.health)
+            
+        print("Selected enemy board: %s (Health: %d)" % [board_data.get("name", selected_board), board_data.get("health", enemy_health)])
+
+func simulate_full_combat(enemy_board_name: String) -> Array:
+    """Simulate a complete combat and return action log"""
+    var action_log = []
+    
+    # Create combat armies
+    var player_army = create_player_combat_army()
+    var enemy_army = create_enemy_combat_army(enemy_board_name)
+    
+    action_log.append({
+        "type": "combat_start", 
+        "player_minions": player_army.size(), 
+        "enemy_minions": enemy_army.size()
+    })
+    
+    # For now, simulate a simple outcome (Phase 2B.3 will implement full combat)
+    if player_army.is_empty() and enemy_army.is_empty():
+        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+    elif player_army.is_empty():
+        action_log.append({"type": "auto_loss", "loser": "player", "reason": "no_minions"})
+        take_damage(combat_damage, true)
+    elif enemy_army.is_empty():
+        action_log.append({"type": "auto_loss", "loser": "enemy", "reason": "no_minions"})
+        take_damage(combat_damage, false)
+    else:
+        # Simulate basic combat outcome (simplified for Phase 2B.2)
+        var player_total_stats = 0
+        var enemy_total_stats = 0
+        
+        for minion in player_army:
+            player_total_stats += minion.current_attack + minion.current_health
+            
+        for minion in enemy_army:
+            enemy_total_stats += minion.current_attack + minion.current_health
+            
+        if player_total_stats > enemy_total_stats:
+            action_log.append({"type": "combat_end", "winner": "player"})
+            take_damage(combat_damage, false)
+        elif enemy_total_stats > player_total_stats:
+            action_log.append({"type": "combat_end", "winner": "enemy"})
+            take_damage(combat_damage, true)
+        else:
+            action_log.append({"type": "combat_tie", "reason": "equal_stats"})
+    
+    return action_log
+
 # NEW: Tavern Phase Buff Application Functions
 
 func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion: MinionCard
@@ -949,6 +1171,48 @@ func test_combat_minion_system() -> void:
     
     print("================================\n")
 
+# Combat UI System Test (Phase 2B.2)
+func test_combat_ui_system() -> void:
+    """Test function to demonstrate combat UI functionality"""
+    print("\n=== Combat UI System Test ===")
+    
+    print("Combat UI Components:")
+    print("  - Enemy Board Selector: %s" % ("✅" if enemy_board_selector else "❌"))
+    print("  - Combat Log Display: %s" % ("✅" if combat_log_display else "❌"))
+    print("  - Player Health Label: %s" % ("✅" if player_health_label else "❌"))
+    print("  - Enemy Health Label: %s" % ("✅" if enemy_health_label else "❌"))
+    print("  - Start Combat Button: %s" % ("✅" if start_combat_button else "❌"))
+    
+    if enemy_board_selector:
+        print("  - Available enemy boards: %d" % enemy_board_selector.get_item_count())
+        for i in range(enemy_board_selector.get_item_count()):
+            print("    %d. %s" % [i + 1, enemy_board_selector.get_item_text(i)])
+    
+    print("\nCurrent Health Status:")
+    print("  - Player: %d" % player_health)
+    print("  - Enemy: %d" % enemy_health)
+    
+    # Test health display updates
+    print("\nTesting health display updates...")
+    var original_player_health = player_health
+    var original_enemy_health = enemy_health
+    
+    # Temporary health change to test UI updates
+    player_health = 20
+    enemy_health = 15
+    update_health_displays()
+    
+    print("  - Updated to Player: 20, Enemy: 15")
+    
+    # Restore original health
+    player_health = original_player_health
+    enemy_health = original_enemy_health
+    update_health_displays()
+    
+    print("  - Restored to Player: %d, Enemy: %d" % [player_health, enemy_health])
+    
+    print("==============================\n")
+
 # Player Health System Test (Phase 2A.4)
 func test_health_system() -> void:
     """Test function to demonstrate health system functionality"""
@@ -1074,6 +1338,11 @@ func _ready():
     enemy_health_changed.connect(_on_enemy_health_changed)
     game_over.connect(_on_game_over)
     
+    # Initialize Combat UI (Phase 2B.2)
+    create_combat_ui()
+    populate_enemy_board_selector()
+    connect_combat_ui_signals()
+    
     # Enemy board system is ready - call test_enemy_board_system() manually to test
     
     # Initialize shop with cards
@@ -1089,16 +1358,19 @@ func _ready():
 func _on_player_health_changed(new_health: int) -> void:
     """Handle player health changes (future UI updates)"""
     print("Player health changed to: %d" % new_health)
-    # TODO: Update health display UI when available
+    update_health_displays()  # Update combat UI displays
 
 func _on_enemy_health_changed(new_health: int) -> void:
     """Handle enemy health changes (future UI updates)"""
     print("Enemy health changed to: %d" % new_health)
-    # TODO: Update health display UI when available
+    update_health_displays()  # Update combat UI displays
 
 func _on_game_over(winner: String) -> void:
     """Handle game over state"""
     print("Game Over! Winner: %s" % winner)
+    if combat_log_display:
+        combat_log_display.append_text("\n[b][color=yellow]GAME OVER![/color][/b]\n")
+        combat_log_display.append_text("Winner: %s\n" % winner)
     # TODO: Show game over screen/dialog when UI is available
 
 
@@ -1121,6 +1393,7 @@ func _on_end_turn_button_pressed() -> void:
     # TEST: Run all system tests instead of normal end turn
     test_health_system()
     test_combat_minion_system()
+    test_combat_ui_system()
     simulate_combat_preparation("mid_game")
     # Uncomment below for normal end turn behavior:
     # start_new_turn()
