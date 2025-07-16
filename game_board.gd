@@ -904,6 +904,8 @@ func format_combat_action(action: Dictionary) -> String:
                     return "Combat tied! (%s)" % reason
         "auto_loss":
             return "%s loses automatically (%s)" % [action.get("loser", "?"), action.get("reason", "?")]
+        "turn_start":
+            return "[b][color=cyan]Turn %d begins![/color][/b] Gold and shop refreshed." % action.get("turn", 0)
         _:
             return "Unknown action: %s" % str(action)
 
@@ -968,16 +970,22 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
     # Check for auto-loss/tie conditions
     if player_minions.is_empty() and enemy_minions.is_empty():
         action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+        action_log.append({"type": "turn_start", "turn": current_turn + 1})
+        start_new_turn()
         return action_log
     
     if player_minions.is_empty():
         action_log.append({"type": "auto_loss", "loser": "player", "reason": "no_minions"})
         take_damage(combat_damage, true)
+        action_log.append({"type": "turn_start", "turn": current_turn + 1})
+        start_new_turn()
         return action_log
     
     if enemy_minions.is_empty():
         action_log.append({"type": "auto_loss", "loser": "enemy", "reason": "no_minions"})
         take_damage(combat_damage, false)
+        action_log.append({"type": "turn_start", "turn": current_turn + 1})
+        start_new_turn()
         return action_log
     
     # Main combat loop - round-robin attacking
@@ -1021,6 +1029,10 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
     elif enemy_minions.is_empty():
         action_log.append({"type": "combat_end", "winner": "player"})
         take_damage(combat_damage, false)
+    
+    # After combat ends, start the next turn
+    action_log.append({"type": "turn_start", "turn": current_turn + 1})
+    start_new_turn()
     
     return action_log
 
@@ -1310,6 +1322,7 @@ func test_enhanced_combat_algorithm() -> void:
     
     for board_name in enemy_boards_to_test:
         print("\n--- Testing Combat vs %s ---" % board_name)
+        print("Pre-combat state: Turn %d, Gold %d/%d" % [current_turn, current_gold, player_base_gold])
         
         # Create combat armies
         var player_army = create_player_combat_army()
@@ -1352,6 +1365,7 @@ func test_enhanced_combat_algorithm() -> void:
                 print("RESULT: %s loses automatically (%s)" % [final_action.get("loser", "unknown"), final_action.get("reason", "unknown")])
         
         print("Current health - Player: %d, Enemy: %d" % [player_health, enemy_health])
+        print("Post-combat state: Turn %d, Gold %d/%d" % [current_turn, current_gold, player_base_gold])
         print("------------------------")
     
     print("=== Enhanced Combat Test Complete ===\n")
@@ -1533,12 +1547,14 @@ func _on_upgrade_shop_button_pressed() -> void:
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
     # TEST: Run all system tests instead of normal end turn
+    # NOTE: In normal gameplay, players use "Start Combat" button, which automatically
+    # progresses to next turn after combat ends. This "End Turn" button is for testing.
     test_health_system()
     test_combat_minion_system()
     test_combat_ui_system()
-    test_enhanced_combat_algorithm()  # NEW: Test enhanced combat algorithm
+    test_enhanced_combat_algorithm()  # NEW: Test enhanced combat algorithm (advances turns)
     simulate_combat_preparation("mid_game")
-    # Uncomment below for normal end turn behavior:
+    # Uncomment below for manual turn advancement without combat:
     # start_new_turn()
 
 # Test function temporarily commented out due to linter issues with new classes
