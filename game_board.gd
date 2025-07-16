@@ -10,6 +10,7 @@ var player_base_gold: int = 3
 var current_gold: int = 3
 var bonus_gold: int = 0
 var shop_tier: int = 1
+var current_tavern_upgrade_cost: int = 5  # Current cost to upgrade tavern, decreases each turn
 var card_pool: Dictionary = {}
 
 # Player Health System (Phase 2A.4)
@@ -45,6 +46,15 @@ var original_enemy_count: int = 0        # For dead minion slots
 
 # Constants
 const GLOBAL_GOLD_MAX = 255
+
+# Tavern tier upgrade system
+const TAVERN_UPGRADE_BASE_COSTS = {
+    2: 5,   # Tier 1 → 2: base cost 5
+    3: 7,   # Tier 2 → 3: base cost 7
+    4: 8,   # Tier 3 → 4: base cost 8
+    5: 9,   # Tier 4 → 5: base cost 9
+    6: 11   # Tier 5 → 6: base cost 11
+}
 
 # Hand/board size tracking
 var max_hand_size: int = 10
@@ -112,23 +122,29 @@ func get_shop_size_for_tier(tier: int) -> int:
         6: return 6
         _: return 3  # Default fallback
 
-func get_random_card_for_tier(tier: int) -> String:
-    """Get a random card ID for the specified tier that's available in the pool and shop"""
-    var available_cards = []
+func get_random_card_for_shop(max_tier: int) -> String:
+    """Get a random card ID from max_tier and below, weighted by copies in pool"""
+    var weighted_cards = []
     
-    # Find all cards of this tier that have remaining copies AND are shop-available
+    # Create weighted selection based on pool copies (more copies = higher chance)
     for card_id in card_pool.keys():
-        if card_pool[card_id] > 0:  # Has remaining copies
+        var copies_available = card_pool[card_id]
+        if copies_available > 0:  # Has remaining copies
             var card_data = CardDatabase.get_card_data(card_id)
-            if card_data.get("tier", 1) == tier and card_data.get("shop_available", true):
-                available_cards.append(card_id)
+            var card_tier = card_data.get("tier", 1)
+            
+            # Include cards from max_tier and below that are shop-available
+            if card_tier <= max_tier and card_data.get("shop_available", true):
+                # Add this card_id multiple times based on copies available
+                for i in range(copies_available):
+                    weighted_cards.append(card_id)
     
-    if available_cards.is_empty():
-        print("Warning: No available shop cards for tier ", tier)
+    if weighted_cards.is_empty():
+        print("Warning: No available shop cards for tier ", max_tier, " and below")
         return ""
     
-    # Return random card from available options
-    return available_cards[randi() % available_cards.size()]
+    # Return random card from weighted options
+    return weighted_cards[randi() % weighted_cards.size()]
 
 func refresh_shop():
     """Clear shop and populate with random cards from current tier"""
@@ -142,7 +158,7 @@ func refresh_shop():
     
     # Add new random cards to shop
     for i in range(shop_size):
-        var card_id = get_random_card_for_tier(shop_tier)
+        var card_id = get_random_card_for_shop(shop_tier)
         if card_id != "":
             add_card_to_shop(card_id)
 
@@ -235,7 +251,11 @@ func start_new_turn():
     current_gold = min(player_base_gold + bonus_gold, GLOBAL_GOLD_MAX)
     bonus_gold = 0  # Reset bonus after applying it
     
+    # Decrease tavern upgrade cost by 1 each turn (minimum 0)
+    current_tavern_upgrade_cost = max(current_tavern_upgrade_cost - 1, 0)
+    
     print("Turn ", current_turn, " started - Base Gold: ", player_base_gold, ", Current Gold: ", current_gold)
+    print("Tavern upgrade cost decreased to: ", current_tavern_upgrade_cost)
     update_ui_displays()
     
     # Refresh shop for new turn (free)
@@ -248,6 +268,15 @@ func update_ui_displays():
         gold_text += " (+" + str(bonus_gold) + ")"
     $MainLayout/TopUI/GoldLabel.text = gold_text
     $MainLayout/TopUI/ShopTierLabel.text = "Shop Tier: " + str(shop_tier)
+    
+    # Update upgrade button text with current cost
+    if can_upgrade_tavern():
+        var upgrade_cost = calculate_tavern_upgrade_cost()
+        $MainLayout/TopUI/UpgradeShopButton.text = "Upgrade (" + str(upgrade_cost) + "g)"
+        $MainLayout/TopUI/UpgradeShopButton.disabled = not can_afford(upgrade_cost)
+    else:
+        $MainLayout/TopUI/UpgradeShopButton.text = "Max Tier"
+        $MainLayout/TopUI/UpgradeShopButton.disabled = true
 
 func spend_gold(amount: int) -> bool:
     """Attempt to spend gold. Returns true if successful, false if insufficient gold"""
@@ -280,6 +309,46 @@ func gain_gold(amount: int):
     current_gold = min(current_gold + amount, GLOBAL_GOLD_MAX)
     print("Gained ", amount, " gold (current: ", current_gold, ")")
     update_ui_displays()
+
+func calculate_tavern_upgrade_cost() -> int:
+    """Get current cost to upgrade tavern tier"""
+    if not can_upgrade_tavern():
+        return -1  # Cannot upgrade past tier 6
+    
+    return current_tavern_upgrade_cost
+
+func can_upgrade_tavern() -> bool:
+    """Check if tavern can be upgraded (not at max tier)"""
+    return shop_tier < 6
+
+func upgrade_tavern_tier() -> bool:
+    """Attempt to upgrade tavern tier. Returns true if successful."""
+    if not can_upgrade_tavern():
+        print("Cannot upgrade - already at max tier (", shop_tier, ")")
+        return false
+    
+    var upgrade_cost = calculate_tavern_upgrade_cost()
+    
+    if not can_afford(upgrade_cost):
+        print("Cannot afford tavern upgrade - need ", upgrade_cost, " gold, have ", current_gold)
+        return false
+    
+    if spend_gold(upgrade_cost):
+        shop_tier += 1
+        
+        # Reset tavern upgrade cost to base cost for next tier
+        var next_tier_after_upgrade = shop_tier + 1
+        if next_tier_after_upgrade <= 6:
+            current_tavern_upgrade_cost = TAVERN_UPGRADE_BASE_COSTS.get(next_tier_after_upgrade, 0)
+            print("Upgraded tavern to tier ", shop_tier, " for ", upgrade_cost, " gold. Next upgrade costs ", current_tavern_upgrade_cost)
+        else:
+            print("Upgraded tavern to tier ", shop_tier, " for ", upgrade_cost, " gold. Max tier reached!")
+        
+        # Refresh shop with new tier
+        refresh_shop()
+        return true
+    
+    return false
 
 func get_hand_size() -> int:
     """Get current number of cards in hand"""
@@ -2102,10 +2171,11 @@ func _on_refresh_shop_button_pressed() -> void:
         print("Cannot refresh shop - need ", refresh_cost, " gold")
 
 func _on_upgrade_shop_button_pressed() -> void:
-    # Temporary test: Apply +1/+1 buff to all board minions (was: upgrade shop tier)
-    if spend_gold(2):
-        apply_tavern_upgrade_all_minions(1, 1)
-        print("TEST: Spent 2 gold to give all board minions +1/+1")
+    """Handle tavern tier upgrade button press"""
+    if upgrade_tavern_tier():
+        print("Successfully upgraded tavern to tier ", shop_tier)
+    else:
+        print("Failed to upgrade tavern tier")
 
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
@@ -2116,9 +2186,119 @@ func _on_end_turn_button_pressed() -> void:
     test_combat_minion_system()
     test_combat_ui_system()
     test_enhanced_combat_algorithm()  # NEW: Test enhanced combat algorithm (advances turns)
+    test_tavern_upgrade_system()  # NEW: Test tavern upgrade system
+    test_shop_tier_distribution()  # NEW: Test shop tier distribution
     simulate_combat_preparation("mid_game")
     # Uncomment below for manual turn advancement without combat:
     # start_new_turn()
+
+func test_tavern_upgrade_system() -> void:
+    """Test function to validate tavern upgrade system with different scenarios"""
+    print("\n=== Tavern Upgrade System Test ===")
+    
+    # Store original state
+    var original_turn = current_turn
+    var original_tier = shop_tier
+    var original_gold = current_gold
+    var original_upgrade_cost = current_tavern_upgrade_cost
+    
+    # Test case 1: Game start
+    current_turn = 1
+    shop_tier = 1
+    current_tavern_upgrade_cost = 5
+    current_gold = 10
+    print("\nTurn 1, Tier 1, upgrade cost 5, 10 gold:")
+    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 5)")
+    print("  - Can afford: ", can_afford(calculate_tavern_upgrade_cost()))
+    
+    # Test case 2: Turn progression reduces cost
+    current_turn = 2
+    current_tavern_upgrade_cost = 4  # Would be decremented by start_new_turn()
+    print("\nTurn 2, Tier 1, upgrade cost decremented to 4:")
+    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 4)")
+    
+    # Test case 3: After upgrade, cost resets to next tier base
+    current_turn = 2
+    shop_tier = 2
+    current_tavern_upgrade_cost = 7  # Reset after upgrading to tier 2
+    print("\nTurn 2, after upgrading to Tier 2, cost reset to 7:")
+    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 7)")
+    
+    # Test case 4: Max tier
+    shop_tier = 6
+    print("\nTier 6 (max):")
+    print("  - Can upgrade: ", can_upgrade_tavern(), " (expected: false)")
+    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: -1)")
+    
+    # Test actual upgrade progression with turn progression
+    current_turn = 1
+    shop_tier = 1
+    current_tavern_upgrade_cost = 5
+    current_gold = 25
+    print("\nUpgrade progression test:")
+    
+    # Simulate turn 1: cost 5, upgrade to tier 2
+    print("Turn 1: Tier 1, upgrade costs ", current_tavern_upgrade_cost)
+    if upgrade_tavern_tier():
+        print("  ✅ Upgraded to tier 2, next upgrade costs ", current_tavern_upgrade_cost)
+    
+    # Simulate turn 2: cost decreases to 6, then upgrade to tier 3  
+    current_tavern_upgrade_cost -= 1  # Simulate turn progression
+    print("Turn 2: Tier 2, upgrade costs ", current_tavern_upgrade_cost, " (7-1)")
+    if upgrade_tavern_tier():
+        print("  ✅ Upgraded to tier 3, next upgrade costs ", current_tavern_upgrade_cost)
+    
+    # Simulate turn 3: cost decreases to 7, then upgrade to tier 4
+    current_tavern_upgrade_cost -= 1  # Simulate turn progression  
+    print("Turn 3: Tier 3, upgrade costs ", current_tavern_upgrade_cost, " (8-1)")
+    if upgrade_tavern_tier():
+        print("  ✅ Upgraded to tier 4, next upgrade costs ", current_tavern_upgrade_cost)
+    
+    # Restore original state
+    current_turn = original_turn
+    shop_tier = original_tier
+    current_gold = original_gold
+    current_tavern_upgrade_cost = original_upgrade_cost
+    update_ui_displays()
+    refresh_shop()
+    
+    print("===============================\n")
+
+func test_shop_tier_distribution() -> void:
+    """Test function to verify shop shows cards from current tier and below"""
+    print("\n=== Shop Tier Distribution Test ===")
+    
+    # Store original state
+    var original_tier = shop_tier
+    
+    # Test tier 1 shop (should only show tier 1)
+    shop_tier = 1
+    print("\nTier 1 shop should show: Tier 1 cards only")
+    var tier1_cards = {}
+    for i in range(10):  # Sample 10 cards
+        var card_id = get_random_card_for_shop(shop_tier)
+        if card_id != "":
+            var card_data = CardDatabase.get_card_data(card_id)
+            var tier = card_data.get("tier", 1)
+            tier1_cards[tier] = tier1_cards.get(tier, 0) + 1
+    print("Tier 1 distribution: ", tier1_cards)
+    
+    # Test tier 3 shop (should show tiers 1, 2, 3)
+    shop_tier = 3  
+    print("\nTier 3 shop should show: Tier 1, 2, 3 cards (tier 1 most common)")
+    var tier3_cards = {}
+    for i in range(20):  # Sample 20 cards
+        var card_id = get_random_card_for_shop(shop_tier)
+        if card_id != "":
+            var card_data = CardDatabase.get_card_data(card_id)
+            var tier = card_data.get("tier", 1)
+            tier3_cards[tier] = tier3_cards.get(tier, 0) + 1
+    print("Tier 3 distribution: ", tier3_cards)
+    
+    # Restore original state
+    shop_tier = original_tier
+    
+    print("===============================\n")
 
 # Test function temporarily commented out due to linter issues with new classes
 # Uncomment after reloading project to register new classes
