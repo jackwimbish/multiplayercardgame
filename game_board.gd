@@ -942,50 +942,134 @@ func _on_enemy_board_selected(index: int) -> void:
             
         print("Selected enemy board: %s (Health: %d)" % [board_data.get("name", selected_board), board_data.get("health", enemy_health)])
 
-func simulate_full_combat(enemy_board_name: String) -> Array:
-    """Simulate a complete combat and return action log"""
+# Enhanced Combat Algorithm (Phase 2B.3)
+
+func pick_random_from_array(array: Array):
+    """Helper function to pick a random element from an array"""
+    if array.is_empty():
+        return null
+    return array[randi() % array.size()]
+
+func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
+    """Enhanced combat algorithm with round-robin attacking and detailed logging"""
     var action_log = []
+    var p_attacker_index = 0
+    var e_attacker_index = 0
+    var p_turn = true
+    var attack_count = 0
+    var max_attacks = 500
     
+    action_log.append({
+        "type": "combat_start", 
+        "player_minions": player_minions.size(), 
+        "enemy_minions": enemy_minions.size()
+    })
+    
+    # Check for auto-loss/tie conditions
+    if player_minions.is_empty() and enemy_minions.is_empty():
+        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+        return action_log
+    
+    if player_minions.is_empty():
+        action_log.append({"type": "auto_loss", "loser": "player", "reason": "no_minions"})
+        take_damage(combat_damage, true)
+        return action_log
+    
+    if enemy_minions.is_empty():
+        action_log.append({"type": "auto_loss", "loser": "enemy", "reason": "no_minions"})
+        take_damage(combat_damage, false)
+        return action_log
+    
+    # Main combat loop - round-robin attacking
+    while not player_minions.is_empty() and not enemy_minions.is_empty() and attack_count < max_attacks:
+        var attacker
+        var defender
+        
+        # Select attacker and defender based on round-robin
+        if p_turn:
+            if p_attacker_index >= player_minions.size(): 
+                p_attacker_index = 0
+            attacker = player_minions[p_attacker_index]
+            defender = pick_random_from_array(enemy_minions)
+        else:
+            if e_attacker_index >= enemy_minions.size(): 
+                e_attacker_index = 0
+            attacker = enemy_minions[e_attacker_index]
+            defender = pick_random_from_array(player_minions)
+        
+        # Execute attack
+        execute_attack(attacker, defender, action_log)
+        attack_count += 1
+        
+        # Remove dead minions
+        player_minions = player_minions.filter(func(m): return m.current_health > 0)
+        enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
+        
+        # Advance turn
+        if p_turn:
+            p_attacker_index += 1
+        else:
+            e_attacker_index += 1
+        p_turn = not p_turn
+    
+    # Determine combat result
+    if attack_count >= max_attacks:
+        action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
+    elif player_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "enemy"})
+        take_damage(combat_damage, true)
+    elif enemy_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player"})
+        take_damage(combat_damage, false)
+    
+    return action_log
+
+func execute_attack(attacker, defender, action_log: Array) -> void:
+    """Execute an attack between two combat minions with detailed logging"""
+    action_log.append({
+        "type": "attack",
+        "attacker_id": attacker.minion_id,
+        "defender_id": defender.minion_id,
+        "attacker_attack": attacker.current_attack,
+        "defender_attack": defender.current_attack
+    })
+    
+    # Simultaneous damage
+    var attacker_damage = attacker.current_attack
+    var defender_damage = defender.current_attack
+    
+    defender.current_health -= attacker_damage
+    attacker.current_health -= defender_damage
+    
+    action_log.append({
+        "type": "damage",
+        "target_id": defender.minion_id,
+        "amount": attacker_damage,
+        "new_health": defender.current_health
+    })
+    
+    action_log.append({
+        "type": "damage", 
+        "target_id": attacker.minion_id,
+        "amount": defender_damage,
+        "new_health": attacker.current_health
+    })
+    
+    # Check for deaths
+    if defender.current_health <= 0:
+        action_log.append({"type": "death", "target_id": defender.minion_id})
+    
+    if attacker.current_health <= 0:
+        action_log.append({"type": "death", "target_id": attacker.minion_id})
+
+func simulate_full_combat(enemy_board_name: String) -> Array:
+    """Simulate a complete combat using enhanced algorithm and return action log"""
     # Create combat armies
     var player_army = create_player_combat_army()
     var enemy_army = create_enemy_combat_army(enemy_board_name)
     
-    action_log.append({
-        "type": "combat_start", 
-        "player_minions": player_army.size(), 
-        "enemy_minions": enemy_army.size()
-    })
-    
-    # For now, simulate a simple outcome (Phase 2B.3 will implement full combat)
-    if player_army.is_empty() and enemy_army.is_empty():
-        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-    elif player_army.is_empty():
-        action_log.append({"type": "auto_loss", "loser": "player", "reason": "no_minions"})
-        take_damage(combat_damage, true)
-    elif enemy_army.is_empty():
-        action_log.append({"type": "auto_loss", "loser": "enemy", "reason": "no_minions"})
-        take_damage(combat_damage, false)
-    else:
-        # Simulate basic combat outcome (simplified for Phase 2B.2)
-        var player_total_stats = 0
-        var enemy_total_stats = 0
-        
-        for minion in player_army:
-            player_total_stats += minion.current_attack + minion.current_health
-            
-        for minion in enemy_army:
-            enemy_total_stats += minion.current_attack + minion.current_health
-            
-        if player_total_stats > enemy_total_stats:
-            action_log.append({"type": "combat_end", "winner": "player"})
-            take_damage(combat_damage, false)
-        elif enemy_total_stats > player_total_stats:
-            action_log.append({"type": "combat_end", "winner": "enemy"})
-            take_damage(combat_damage, true)
-        else:
-            action_log.append({"type": "combat_tie", "reason": "equal_stats"})
-    
-    return action_log
+    # Run the enhanced combat algorithm
+    return run_combat(player_army, enemy_army)
 
 # NEW: Tavern Phase Buff Application Functions
 
@@ -1214,6 +1298,64 @@ func test_combat_ui_system() -> void:
     print("==============================\n")
 
 # Player Health System Test (Phase 2A.4)
+func test_enhanced_combat_algorithm() -> void:
+    """Test function to demonstrate enhanced combat algorithm (Phase 2B.3)"""
+    print("\n=== Enhanced Combat Algorithm Test ===")
+    
+    # Reset health for clean test
+    reset_health()
+    
+    # Test with different enemy boards
+    var enemy_boards_to_test = ["early_game", "mid_game", "late_game"]
+    
+    for board_name in enemy_boards_to_test:
+        print("\n--- Testing Combat vs %s ---" % board_name)
+        
+        # Create combat armies
+        var player_army = create_player_combat_army()
+        var enemy_army = create_enemy_combat_army(board_name)
+        
+        print("Player army: %d minions" % player_army.size())
+        for minion in player_army:
+            print("  - %s: %d/%d" % [minion.source_card_id, minion.current_attack, minion.current_health])
+        
+        print("Enemy army (%s): %d minions" % [board_name, enemy_army.size()])
+        for minion in enemy_army:
+            print("  - %s: %d/%d" % [minion.source_card_id, minion.current_attack, minion.current_health])
+        
+        # Run enhanced combat algorithm
+        print("\nRunning enhanced combat algorithm...")
+        var combat_log = run_combat(player_army.duplicate(true), enemy_army.duplicate(true))
+        
+        print("Combat result: %d actions logged" % combat_log.size())
+        
+        # Display first few and last few actions for summary
+        var display_count = min(5, combat_log.size())
+        print("First %d actions:" % display_count)
+        for i in range(display_count):
+            print("  %d: %s" % [i + 1, format_combat_action(combat_log[i])])
+        
+        if combat_log.size() > 10:
+            print("  ... (%d actions omitted) ..." % (combat_log.size() - 10))
+            print("Last %d actions:" % display_count)
+            for i in range(combat_log.size() - display_count, combat_log.size()):
+                print("  %d: %s" % [i + 1, format_combat_action(combat_log[i])])
+        
+        # Show final result
+        var final_action = combat_log[combat_log.size() - 1]
+        match final_action.get("type", ""):
+            "combat_end":
+                print("RESULT: %s wins!" % final_action.get("winner", "unknown"))
+            "combat_tie":
+                print("RESULT: Tie! (%s)" % final_action.get("reason", "unknown"))
+            "auto_loss":
+                print("RESULT: %s loses automatically (%s)" % [final_action.get("loser", "unknown"), final_action.get("reason", "unknown")])
+        
+        print("Current health - Player: %d, Enemy: %d" % [player_health, enemy_health])
+        print("------------------------")
+    
+    print("=== Enhanced Combat Test Complete ===\n")
+
 func test_health_system() -> void:
     """Test function to demonstrate health system functionality"""
     print("\n=== Player Health System Test ===")
@@ -1394,6 +1536,7 @@ func _on_end_turn_button_pressed() -> void:
     test_health_system()
     test_combat_minion_system()
     test_combat_ui_system()
+    test_enhanced_combat_algorithm()  # NEW: Test enhanced combat algorithm
     simulate_combat_preparation("mid_game")
     # Uncomment below for normal end turn behavior:
     # start_new_turn()
