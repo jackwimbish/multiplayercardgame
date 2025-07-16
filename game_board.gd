@@ -120,9 +120,6 @@ func add_card_to_shop(card_id: String):
     var new_card = CardScene.instantiate()
     new_card.setup_card_data(card_data)
     
-    # Ensure consistent card sizing
-    _set_card_size_properties(new_card)
-    
     # Connect drag handler for shop cards (drag-to-purchase)
     new_card.drag_started.connect(_on_card_drag_started)
     
@@ -138,9 +135,6 @@ func add_card_to_hand_direct(card_id: String):
     var card_data = CardDatabase.get_card_data(card_id)
     var new_card = CardScene.instantiate()
     new_card.setup_card_data(card_data)
-    
-    # Ensure consistent card sizing
-    _set_card_size_properties(new_card)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -239,9 +233,6 @@ func add_card_to_hand(card_id):
     var data = CardDatabase.get_card_data(card_id)
     var new_card = CardScene.instantiate()
     new_card.setup_card_data(data)
-    
-    # Ensure consistent card sizing
-    _set_card_size_properties(new_card)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
@@ -424,9 +415,6 @@ func _handle_hand_reorder_drop(card):
 
     # Put the card back into the hand container
     card.reparent($MainLayout/PlayerHand)
-    
-    # Ensure consistent card sizing after reparenting
-    _set_card_size_properties(card)
 
     # Move it to the calculated position
     if new_index != -1:
@@ -489,9 +477,6 @@ func _handle_board_reorder_drop(card):
     # Put the card back into the board container
     card.reparent($MainLayout/PlayerBoard)
     
-    # Ensure consistent card sizing after reparenting
-    _set_card_size_properties(card)
-
     # Move it to the calculated position
     if new_index != -1:
         $MainLayout/PlayerBoard.move_child(card, new_index)
@@ -509,9 +494,6 @@ func _handle_board_to_hand_drop(card):
     
     # Move minion back to hand
     card.reparent($MainLayout/PlayerHand)
-    
-    # Ensure consistent card sizing after reparenting
-    _set_card_size_properties(card)
     
     update_hand_count()
     update_board_count()
@@ -583,9 +565,6 @@ func _play_minion_to_board(card):
     
     # Move card to board
     card.reparent($MainLayout/PlayerBoard)
-    
-    # Ensure consistent card sizing after reparenting
-    _set_card_size_properties(card)
     
     # Position the card appropriately
     if new_index != -1:
@@ -678,18 +657,6 @@ func _is_dragged_card_minion() -> bool:
     var card_data = _find_card_data_by_name(card_name)
     return card_data.get("type", "") == "minion"
 
-func _set_card_size_properties(card):
-    """Ensure consistent card sizing across all containers"""
-    # Reset anchors to prevent conflicts with size setting
-    card.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-    
-    # Set consistent size constraints
-    card.custom_minimum_size = Vector2(120, 180)
-    card.size = Vector2(120, 180)
-    
-    # Prevent expansion in containers
-    card.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-    card.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 func _cast_spell(spell_card, card_data: Dictionary):
     """Cast a spell card and apply its effects"""

@@ -8,6 +8,23 @@ var is_being_dragged: bool = false
 var drag_offset = Vector2.ZERO
 var mouse_press_position: Vector2
 const DRAG_THRESHOLD_DISTANCE = 10.0  # pixels before drag starts
+
+func _ready():
+    # Set consistent card sizing automatically
+    _set_default_size()
+
+func _set_default_size():
+    """Set the standard card size and constraints"""
+    # Reset anchors to prevent conflicts with size setting
+    set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+    
+    # Set consistent size constraints
+    custom_minimum_size = Vector2(120, 180)
+    size = Vector2(120, 180)
+    
+    # Prevent expansion in containers
+    size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+    size_flags_vertical = Control.SIZE_SHRINK_CENTER
         
 func _gui_input(event):
     if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
