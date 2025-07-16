@@ -23,8 +23,8 @@ func _set_default_size():
     set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
     
     # Set consistent size constraints
-    custom_minimum_size = Vector2(120, 180)
-    size = Vector2(120, 180)
+    custom_minimum_size = Vector2(160, 240)
+    size = Vector2(160, 240)
     
     # Prevent expansion in containers
     size_flags_horizontal = Control.SIZE_SHRINK_CENTER
@@ -59,7 +59,11 @@ func setup_card_data(data: Dictionary):
     
     # Set up UI elements
     $VBoxContainer/CardName.text = data.get("name", "Unnamed")
-    $VBoxContainer/CardDescription.text = data.get("description", "")
+    
+    # Set description with dynamic font sizing
+    var description = data.get("description", "")
+    $VBoxContainer/CardDescription.text = description
+    _adjust_description_font_size(description)
     
     # Show/hide stats based on card type - base implementation for spells
     if data.has("attack") and data.has("health"):
@@ -70,5 +74,31 @@ func setup_card_data(data: Dictionary):
         # Hide stats for spells or cards without both attack and health
         $VBoxContainer/BottomRow/StatsLabel.hide()
     
-    # We'll load the art later, but the setup is here
-    # $VBoxContainer/CardArt.texture = load(data["art_path"])
+    # Load card art using the database helper function
+    var card_id = data.get("id", "")
+    if card_id != "":
+        var art_path = CardDatabase.get_card_art_path(card_id)
+        var art_texture = load(art_path)
+        if art_texture:
+            $VBoxContainer/CardArt.texture = art_texture
+        else:
+            print("Warning: Could not load card art from: ", art_path)
+
+func _adjust_description_font_size(description: String) -> void:
+    """Adjust font size based on description length"""
+    var description_label = $VBoxContainer/CardDescription
+    
+    # Get current theme or create a new one
+    var theme_override = description_label.get_theme_stylebox("normal")
+    
+    # Determine font size based on text length
+    var font_size: int
+    if description.length() <= 30:
+        font_size = 12  # Normal size for short descriptions
+    elif description.length() <= 60:
+        font_size = 10  # Smaller for medium descriptions  
+    else:
+        font_size = 8   # Smallest for long descriptions
+    
+    # Apply the font size
+    description_label.add_theme_font_size_override("font_size", font_size)
