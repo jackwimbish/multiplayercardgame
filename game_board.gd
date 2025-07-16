@@ -216,11 +216,20 @@ func add_card_to_hand(card_id):
 
 func detect_drop_zone(global_pos: Vector2) -> String:
     """Detect which zone a card is being dropped into"""
+    # Get the full container rectangles (including labels and empty space)
     var hand_rect = $MainLayout/PlayerHand.get_global_rect()
     var board_rect = $MainLayout/PlayerBoard.get_global_rect()
     var shop_rect = $MainLayout/ShopArea.get_global_rect()
     
-    if hand_rect.has_point(global_pos):
+    # Expand hand area to make it easier to drop into, especially upward toward center
+    var expanded_hand_rect = Rect2(
+        hand_rect.position.x - 30,  # 30 pixels left
+        hand_rect.position.y - 100, # 100 pixels up (extends well toward center)
+        hand_rect.size.x + 60,      # 30 pixels on each side (left + right)
+        hand_rect.size.y + 130      # 100 pixels up + 30 pixels down
+    )
+    
+    if expanded_hand_rect.has_point(global_pos):
         return "hand"
     elif board_rect.has_point(global_pos):
         return "board"
@@ -286,7 +295,17 @@ func _on_card_dropped(card):
     var origin_zone = card.get_meta("origin_zone", "unknown")
     var drop_zone = detect_drop_zone(card.global_position)
     
-    print(card.name, " dropped from ", origin_zone, " to ", drop_zone)
+    print(card.name, " dropped from ", origin_zone, " to ", drop_zone, " at position ", card.global_position)
+    
+    # Debug: print hand area bounds
+    var hand_rect = $MainLayout/PlayerHand.get_global_rect()
+    var expanded_hand_rect = Rect2(
+        hand_rect.position.x - 30,
+        hand_rect.position.y - 100,
+        hand_rect.size.x + 60,
+        hand_rect.size.y + 130
+    )
+    print("Hand area: ", hand_rect, " (expanded: ", expanded_hand_rect, ")")
     
     # Handle different drop scenarios
     match [origin_zone, drop_zone]:
@@ -471,8 +490,8 @@ func _clear_drop_zone_feedback():
 
 func _highlight_container(container: Container, color: Color):
     """Add visual highlight to a container"""
-    # Simple modulation-based highlight
-    container.modulate = Color(color.r, color.g, color.b, 0.8)
+    # More visible modulation-based highlight
+    container.modulate = Color(color.r, color.g, color.b, 0.7)
 
 func _remove_highlight(container: Container):
     """Remove visual highlight from a container"""
