@@ -35,6 +35,14 @@ enum GameMode { SHOP, COMBAT }
 var current_mode: GameMode = GameMode.SHOP
 var current_enemy_board_name: String = ""
 
+# Combat Result Toggle System
+var combat_view_toggle_button: Button
+var current_combat_view: String = "log"  # "log" or "result"
+var final_player_minions: Array = []     # Surviving CombatMinions
+var final_enemy_minions: Array = []      # Surviving CombatMinions  
+var original_player_count: int = 0       # For dead minion slots
+var original_enemy_count: int = 0        # For dead minion slots
+
 # Constants
 const GLOBAL_GOLD_MAX = 255
 
@@ -908,6 +916,9 @@ func switch_to_shop_mode() -> void:
     # Clear enemy board from shop area
     _clear_enemy_board_from_shop_area()
     
+    # Restore original player board (in case we were in result view)
+    _restore_original_player_board()
+    
     # Update combat UI for shop mode
     _update_combat_ui_for_shop_mode()
     
@@ -977,7 +988,11 @@ func _clear_enemy_board_from_shop_area() -> void:
     """Remove enemy minions from shop area"""
     var children_to_remove = []
     for child in $MainLayout/ShopArea.get_children():
-        if child.name.begins_with("EnemyMinion_") or child.name == "EnemyBoardLabel":
+        if (child.name.begins_with("EnemyMinion_") or 
+            child.name == "EnemyBoardLabel" or
+            child.name == "EnemyResultLabel" or
+            child.name.begins_with("EnemyResult_") or
+            child.name.begins_with("EnemyTombstone_")):
             children_to_remove.append(child)
     
     for child in children_to_remove:
@@ -999,6 +1014,14 @@ func _update_combat_ui_for_combat_mode() -> void:
     if enemy_board_selector:
         enemy_board_selector.get_parent().visible = false
     
+    # Create combat view toggle button if it doesn't exist
+    if not combat_view_toggle_button:
+        combat_view_toggle_button = Button.new()
+        combat_view_toggle_button.name = "CombatViewToggleButton"
+        combat_view_toggle_button.text = "Show Combat Result"
+        combat_ui_container.add_child(combat_view_toggle_button)
+        combat_view_toggle_button.pressed.connect(_on_combat_view_toggle_pressed)
+    
     # Create return to shop button if it doesn't exist
     if not return_to_shop_button:
         return_to_shop_button = Button.new()
@@ -1007,7 +1030,9 @@ func _update_combat_ui_for_combat_mode() -> void:
         combat_ui_container.add_child(return_to_shop_button)
         return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
     
+    combat_view_toggle_button.visible = true
     return_to_shop_button.visible = true
+    current_combat_view = "log"  # Reset to log view when entering combat
     
     # Make combat log more prominent
     if combat_log_display:
@@ -1021,12 +1046,179 @@ func _update_combat_ui_for_shop_mode() -> void:
     if enemy_board_selector:
         enemy_board_selector.get_parent().visible = true
     
+    if combat_view_toggle_button:
+        combat_view_toggle_button.visible = false
+    
     if return_to_shop_button:
         return_to_shop_button.visible = false
     
     # Make combat log smaller during shop mode
     if combat_log_display:
         combat_log_display.custom_minimum_size = Vector2(400, 200)
+
+# Combat Result Toggle View Functions
+
+func _show_combat_result_view() -> void:
+    """Show the final combat result with surviving minions and tombstones"""
+    # Hide combat log
+    if combat_log_display:
+        combat_log_display.visible = false
+    
+    # Clear current enemy board display
+    _clear_enemy_board_from_shop_area()
+    
+    # Show final board states
+    _display_final_player_board()
+    _display_final_enemy_board()
+    
+    print("Showing combat result view")
+
+func _show_combat_log_view() -> void:
+    """Show the combat log view (default)"""
+    # Show combat log
+    if combat_log_display:
+        combat_log_display.visible = true
+    
+    # Clear result view
+    _clear_enemy_board_from_shop_area()
+    
+    # Restore original player board (in case we were in result view)
+    _restore_original_player_board()
+    
+    # Show original enemy board preview
+    _display_enemy_board_in_shop_area(current_enemy_board_name)
+    
+    print("Showing combat log view")
+
+func _display_final_player_board() -> void:
+    """Update player board to show final combat state"""
+    # Hide original minions instead of removing them
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.name != "PlayerBoardLabel":
+            child.visible = false
+    
+    # Show surviving minions with updated health
+    for i in range(original_player_count):
+        var surviving_minion = null
+        
+        # Find surviving minion at this position
+        for minion in final_player_minions:
+            if minion.position == i:
+                surviving_minion = minion
+                break
+        
+        if surviving_minion:
+            # Create card showing final state
+            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
+            card_data.attack = surviving_minion.current_attack
+            card_data.health = surviving_minion.current_health
+            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
+            
+            # Apply health color (orange for damaged)
+            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
+            
+            # Mark as result card for cleanup
+            result_card.name = "PlayerResult_%d" % i
+            $MainLayout/PlayerBoard.add_child(result_card)
+        else:
+            # Create tombstone for dead minion
+            var tombstone = _create_tombstone_card()
+            tombstone.name = "PlayerTombstone_%d" % i
+            $MainLayout/PlayerBoard.add_child(tombstone)
+
+func _display_final_enemy_board() -> void:
+    """Display final enemy board state in shop area"""
+    # Add result label
+    var result_label = Label.new()
+    result_label.name = "EnemyResultLabel"
+    result_label.text = "Enemy Final State"
+    result_label.add_theme_color_override("font_color", Color.RED)
+    $MainLayout/ShopArea.add_child(result_label)
+    
+    # Show surviving enemy minions with tombstones
+    for i in range(original_enemy_count):
+        var surviving_minion = null
+        
+        # Find surviving minion at this position
+        for minion in final_enemy_minions:
+            if minion.position == i:
+                surviving_minion = minion
+                break
+        
+        if surviving_minion:
+            # Create card showing final state
+            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
+            card_data.attack = surviving_minion.current_attack
+            card_data.health = surviving_minion.current_health
+            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
+            
+            # Apply enemy visual style and health color
+            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
+            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
+            
+            result_card.name = "EnemyResult_%d" % i
+            $MainLayout/ShopArea.add_child(result_card)
+        else:
+            # Create tombstone for dead enemy minion
+            var tombstone = _create_tombstone_card()
+            tombstone.name = "EnemyTombstone_%d" % i
+            $MainLayout/ShopArea.add_child(tombstone)
+
+func _create_tombstone_card() -> Control:
+    """Create a tombstone card to represent a dead minion"""
+    var tombstone = CardScene.instantiate()
+    
+    # Setup tombstone data
+    var tombstone_data = {
+        "name": "💀",
+        "description": "Died in combat",
+        "type": "tombstone"
+    }
+    
+    tombstone.setup_card_data(tombstone_data)
+    
+    # Apply greyed-out visual style
+    tombstone.modulate = Color(0.5, 0.5, 0.5, 0.7)
+    tombstone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    return tombstone
+
+func _apply_health_color_to_card(card: Control, current_health: int, max_health: int) -> void:
+    """Apply orange color to health text if minion is damaged"""
+    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+    if stats_label and current_health < max_health:
+        # Damaged minion - make health orange
+        stats_label.add_theme_color_override("font_color", Color.ORANGE)
+    elif stats_label:
+        # Full health - normal color
+        stats_label.add_theme_color_override("font_color", Color.WHITE)
+
+func _restore_original_player_board() -> void:
+    """Restore the player board to its original state (before combat result view)"""
+    var children_to_remove = []
+    
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.name != "PlayerBoardLabel":
+            # Remove result cards and tombstones
+            if (child.name.begins_with("PlayerResult_") or 
+                child.name.begins_with("PlayerTombstone_")):
+                children_to_remove.append(child)
+            else:
+                # Show original minions that were hidden
+                child.visible = true
+                
+                # Reset any color overrides that might have been applied
+                var stats_label = child.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+                if stats_label:
+                    stats_label.remove_theme_color_override("font_color")
+                
+                # Reset modulation
+                child.modulate = Color.WHITE
+    
+    # Remove result cards and tombstones
+    for child in children_to_remove:
+        child.queue_free()
 
 func display_combat_log(action_log: Array) -> void:
     """Display combat actions in the combat log"""
@@ -1108,6 +1300,21 @@ func _on_start_combat_button_pressed() -> void:
     # Run combat simulation and display results
     var combat_result = simulate_full_combat(selected_board_name)
     display_combat_log(combat_result)
+
+func _on_combat_view_toggle_pressed() -> void:
+    """Handle combat view toggle button press"""
+    if current_combat_view == "log":
+        # Switch to result view
+        current_combat_view = "result"
+        combat_view_toggle_button.text = "Show Combat Log"
+        _show_combat_result_view()
+    else:
+        # Switch to log view
+        current_combat_view = "log"
+        combat_view_toggle_button.text = "Show Combat Result"
+        _show_combat_log_view()
+    
+    print("Toggled combat view to: %s" % current_combat_view)
 
 func _on_return_to_shop_button_pressed() -> void:
     """Handle return to shop button press - advance turn and switch back to shop"""
@@ -1209,6 +1416,11 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
             attacker = enemy_minions[e_attacker_index]
             defender = pick_random_from_array(player_minions)
         
+        # Check if we have valid attacker and defender before executing attack
+        if attacker == null or defender == null:
+            action_log.append({"type": "combat_end", "reason": "null_combatant", "winner": "tie"})
+            break
+        
         # Execute attack (even 0-damage attacks count as attempts)
         execute_attack(attacker, defender, action_log)
         attack_count += 1
@@ -1227,6 +1439,10 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
     # Handle max attacks reached
     if attack_count >= max_attacks:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
+    
+    # Store final combat state for result view
+    final_player_minions = player_minions.duplicate(true)
+    final_enemy_minions = enemy_minions.duplicate(true)
     
     # Don't auto-advance turn in combat mode - player uses "Return to Shop" button
     if current_mode == GameMode.SHOP:
@@ -1281,6 +1497,10 @@ func simulate_full_combat(enemy_board_name: String) -> Array:
     # Create combat armies
     var player_army = create_player_combat_army()
     var enemy_army = create_enemy_combat_army(enemy_board_name)
+    
+    # Store original counts for result view
+    original_player_count = player_army.size()
+    original_enemy_count = enemy_army.size()
     
     # Run the enhanced combat algorithm
     return run_combat(player_army, enemy_army)
