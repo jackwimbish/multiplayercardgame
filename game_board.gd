@@ -921,6 +921,7 @@ func switch_to_shop_mode() -> void:
     
     # Reset battle selection display (clear previous combat log)
     if combat_log_display:
+        combat_log_display.clear()
         combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
     
     # Update combat UI for shop mode
@@ -996,7 +997,7 @@ func _clear_enemy_board_from_shop_area() -> void:
             child.name == "EnemyBoardLabel" or
             child.name == "EnemyResultLabel" or
             child.name.begins_with("EnemyResult_") or
-            child.name.begins_with("EnemyTombstone_")):
+            child.name.begins_with("EnemyDead_")):
             children_to_remove.append(child)
     
     for child in children_to_remove:
@@ -1018,14 +1019,6 @@ func _update_combat_ui_for_combat_mode() -> void:
     if enemy_board_selector:
         enemy_board_selector.get_parent().visible = false
     
-    # Create combat view toggle button if it doesn't exist
-    if not combat_view_toggle_button:
-        combat_view_toggle_button = Button.new()
-        combat_view_toggle_button.name = "CombatViewToggleButton"
-        combat_view_toggle_button.text = "Show Battle Result"
-        combat_ui_container.add_child(combat_view_toggle_button)
-        combat_view_toggle_button.pressed.connect(_on_combat_view_toggle_pressed)
-    
     # Create return to shop button if it doesn't exist
     if not return_to_shop_button:
         return_to_shop_button = Button.new()
@@ -1034,13 +1027,16 @@ func _update_combat_ui_for_combat_mode() -> void:
         combat_ui_container.add_child(return_to_shop_button)
         return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
     
-    combat_view_toggle_button.visible = true
-    return_to_shop_button.visible = true
-    current_combat_view = "log"  # Reset to log view when entering combat
+    # Hide toggle button (no longer needed)
+    if combat_view_toggle_button:
+        combat_view_toggle_button.visible = false
     
-    # Make combat log more prominent
+    return_to_shop_button.visible = true
+    
+    # Make combat log prominent and always visible
     if combat_log_display:
         combat_log_display.custom_minimum_size = Vector2(600, 300)
+        combat_log_display.visible = true
 
 func _update_combat_ui_for_shop_mode() -> void:
     """Update combat UI elements for shop mode"""
@@ -1056,9 +1052,10 @@ func _update_combat_ui_for_shop_mode() -> void:
     if return_to_shop_button:
         return_to_shop_button.visible = false
     
-    # Make combat log smaller during shop mode
+    # Hide combat log during shop mode and make it smaller
     if combat_log_display:
         combat_log_display.custom_minimum_size = Vector2(400, 200)
+        combat_log_display.visible = true  # Keep visible for "Next Battle" display
 
 # Combat Result Toggle View Functions
 
@@ -1094,6 +1091,94 @@ func _show_combat_log_view() -> void:
     
     print("Showing combat log view")
 
+func _show_combat_result_with_log() -> void:
+    """Show the combined combat result view with both log and final board states"""
+    # Combat log is already visible and populated
+    
+    # Clear current enemy board display
+    _clear_enemy_board_from_shop_area()
+    
+    # Show final board states
+    _display_final_player_board_with_dead()
+    _display_final_enemy_board_with_dead()
+    
+    print("Showing combined combat result with log")
+
+func _display_final_player_board_with_dead() -> void:
+    """Update player board to show final combat state with dead minions visible"""
+    # Hide original minions instead of removing them
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.name != "PlayerBoardLabel":
+            child.visible = false
+    
+    # Show surviving minions with updated health
+    for i in range(original_player_count):
+        var surviving_minion = null
+        
+        # Find surviving minion at this position
+        for minion in final_player_minions:
+            if minion.position == i:
+                surviving_minion = minion
+                break
+        
+        if surviving_minion:
+            # Create card showing final state
+            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
+            card_data.attack = surviving_minion.current_attack
+            card_data.health = surviving_minion.current_health
+            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
+            
+            # Apply health color (orange for damaged, red for dead)
+            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
+            
+            # Mark as result card for cleanup
+            result_card.name = "PlayerResult_%d" % i
+            $MainLayout/PlayerBoard.add_child(result_card)
+        else:
+            # Create dead minion display (greyed out with red health)
+            var dead_minion = _create_dead_minion_card(i, true)
+            dead_minion.name = "PlayerDead_%d" % i
+            $MainLayout/PlayerBoard.add_child(dead_minion)
+
+func _display_final_enemy_board_with_dead() -> void:
+    """Display final enemy board state in shop area with dead minions visible"""
+    # Add result label
+    var result_label = Label.new()
+    result_label.name = "EnemyResultLabel"
+    result_label.text = "Enemy Final State"
+    result_label.add_theme_color_override("font_color", Color.RED)
+    $MainLayout/ShopArea.add_child(result_label)
+    
+    # Show surviving enemy minions with dead minions
+    for i in range(original_enemy_count):
+        var surviving_minion = null
+        
+        # Find surviving minion at this position
+        for minion in final_enemy_minions:
+            if minion.position == i:
+                surviving_minion = minion
+                break
+        
+        if surviving_minion:
+            # Create card showing final state
+            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
+            card_data.attack = surviving_minion.current_attack
+            card_data.health = surviving_minion.current_health
+            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
+            
+            # Apply enemy visual style and health color
+            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
+            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
+            
+            result_card.name = "EnemyResult_%d" % i
+            $MainLayout/ShopArea.add_child(result_card)
+        else:
+            # Create dead enemy minion display (greyed out with red health)
+            var dead_minion = _create_dead_minion_card(i, false)
+            dead_minion.name = "EnemyDead_%d" % i
+            $MainLayout/ShopArea.add_child(dead_minion)
+
 func _display_final_player_board() -> void:
     """Update player board to show final combat state"""
     # Hide original minions instead of removing them
@@ -1125,10 +1210,10 @@ func _display_final_player_board() -> void:
             result_card.name = "PlayerResult_%d" % i
             $MainLayout/PlayerBoard.add_child(result_card)
         else:
-            # Create tombstone for dead minion
-            var tombstone = _create_tombstone_card()
-            tombstone.name = "PlayerTombstone_%d" % i
-            $MainLayout/PlayerBoard.add_child(tombstone)
+            # Create dead minion display (greyed out with red health)
+            var dead_minion = _create_dead_minion_card(i, true)
+            dead_minion.name = "PlayerDead_%d" % i
+            $MainLayout/PlayerBoard.add_child(dead_minion)
 
 func _display_final_enemy_board() -> void:
     """Display final enemy board state in shop area"""
@@ -1164,29 +1249,62 @@ func _display_final_enemy_board() -> void:
             result_card.name = "EnemyResult_%d" % i
             $MainLayout/ShopArea.add_child(result_card)
         else:
-            # Create tombstone for dead enemy minion
-            var tombstone = _create_tombstone_card()
-            tombstone.name = "EnemyTombstone_%d" % i
-            $MainLayout/ShopArea.add_child(tombstone)
+            # Create dead enemy minion display (greyed out with red health)
+            var dead_minion = _create_dead_minion_card(i, false)
+            dead_minion.name = "EnemyDead_%d" % i
+            $MainLayout/ShopArea.add_child(dead_minion)
 
-func _create_tombstone_card() -> Control:
-    """Create a tombstone card to represent a dead minion"""
-    var tombstone = CardScene.instantiate()
+func _create_dead_minion_card(position: int, is_player: bool) -> Control:
+    """Create a card showing a dead minion (greyed out with red health)"""
+    # Find the original minion data at this position
+    var original_card_data = {}
+    var original_minions = []
     
-    # Setup tombstone data
-    var tombstone_data = {
-        "name": "💀",
-        "description": "Died in combat",
-        "type": "tombstone"
-    }
+    # Get original minion data from current board before combat
+    if is_player:
+        for child in $MainLayout/PlayerBoard.get_children():
+            if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
+                original_minions.append(child.card_data.duplicate())
+    else:
+        # For enemy, we need to reconstruct from the enemy board name
+        var enemy_board_data = EnemyBoards.create_enemy_board(current_enemy_board_name)
+        for enemy_minion_data in enemy_board_data.get("minions", []):
+            var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
+            # Apply buffs
+            for buff_data in enemy_minion_data.get("buffs", []):
+                if buff_data.type == "stat_modification":
+                    card_data.attack += buff_data.get("attack_bonus", 0)
+                    card_data.health += buff_data.get("health_bonus", 0)
+            original_minions.append(card_data)
     
-    tombstone.setup_card_data(tombstone_data)
+    # Get card data for this position
+    if position < original_minions.size():
+        original_card_data = original_minions[position].duplicate()
+    else:
+        # Fallback if position is out of range
+        original_card_data = {
+            "name": "Unknown Minion",
+            "description": "",
+            "attack": 0,
+            "health": 0,
+            "id": "unknown"
+        }
+    
+    # Set health to 0 for dead minion display
+    original_card_data.health = 0
+    
+    var dead_card = create_card_instance(original_card_data, original_card_data.get("id", "unknown"))
     
     # Apply greyed-out visual style
-    tombstone.modulate = Color(0.5, 0.5, 0.5, 0.7)
-    tombstone.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    dead_card.modulate = Color(0.6, 0.6, 0.6, 0.8)
+    dead_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
     
-    return tombstone
+    # Make health text red for dead minions
+    var stats_label = dead_card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+    if stats_label:
+        stats_label.add_theme_color_override("font_color", Color.RED)
+    
+    return dead_card
 
 func _apply_health_color_to_card(card: Control, current_health: int, max_health: int) -> void:
     """Apply orange color to health text if minion is damaged"""
@@ -1198,15 +1316,29 @@ func _apply_health_color_to_card(card: Control, current_health: int, max_health:
         # Full health - normal color
         stats_label.add_theme_color_override("font_color", Color.WHITE)
 
+func _apply_health_color_to_card_enhanced(card: Control, current_health: int, max_health: int) -> void:
+    """Apply color to health text: red for dead (<=0), orange for damaged, white for full"""
+    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+    if stats_label:
+        if current_health <= 0:
+            # Dead minion - make health red
+            stats_label.add_theme_color_override("font_color", Color.RED)
+        elif current_health < max_health:
+            # Damaged minion - make health orange
+            stats_label.add_theme_color_override("font_color", Color.ORANGE)
+        else:
+            # Full health - normal color
+            stats_label.add_theme_color_override("font_color", Color.WHITE)
+
 func _restore_original_player_board() -> void:
     """Restore the player board to its original state (before combat result view)"""
     var children_to_remove = []
     
     for child in $MainLayout/PlayerBoard.get_children():
         if child.name != "PlayerBoardLabel":
-            # Remove result cards and tombstones
+            # Remove result cards and dead minion cards
             if (child.name.begins_with("PlayerResult_") or 
-                child.name.begins_with("PlayerTombstone_")):
+                child.name.begins_with("PlayerDead_")):
                 children_to_remove.append(child)
             else:
                 # Show original minions that were hidden
@@ -1304,21 +1436,11 @@ func _on_start_combat_button_pressed() -> void:
     # Run combat simulation and display results
     var combat_result = simulate_full_combat(selected_board_name)
     display_combat_log(combat_result)
-
-func _on_combat_view_toggle_pressed() -> void:
-    """Handle combat view toggle button press"""
-    if current_combat_view == "log":
-        # Switch to result view
-        current_combat_view = "result"
-        combat_view_toggle_button.text = "Show Battle Log"
-        _show_combat_result_view()
-    else:
-        # Switch to log view
-        current_combat_view = "log"
-        combat_view_toggle_button.text = "Show Battle Result"
-        _show_combat_log_view()
     
-    print("Toggled combat view to: %s" % current_combat_view)
+    # Automatically show the combined result view (log + final board states)
+    _show_combat_result_with_log()
+
+# Combat view toggle function removed - now showing combined result view only
 
 func _on_return_to_shop_button_pressed() -> void:
     """Handle return to shop button press - advance turn and switch back to shop"""
