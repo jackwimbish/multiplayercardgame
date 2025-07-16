@@ -888,7 +888,14 @@ func format_combat_action(action: Dictionary) -> String:
         "combat_start":
             return "Combat begins! Player: %d minions vs Enemy: %d minions" % [action.get("player_minions", 0), action.get("enemy_minions", 0)]
         "attack":
-            return "%s attacks %s (%d vs %d)" % [action.get("attacker_id", "?"), action.get("defender_id", "?"), action.get("attacker_attack", 0), action.get("defender_attack", 0)]
+            return "%s attacks %s (%d/%d vs %d/%d)" % [
+                action.get("attacker_id", "?"), 
+                action.get("defender_id", "?"), 
+                action.get("attacker_attack", 0),
+                action.get("attacker_health", 0),
+                action.get("defender_attack", 0),
+                action.get("defender_health", 0)
+            ]
         "damage":
             return "%s takes %d damage (health: %d)" % [action.get("target_id", "?"), action.get("amount", 0), action.get("new_health", 0)]
         "death":
@@ -1063,7 +1070,9 @@ func execute_attack(attacker, defender, action_log: Array) -> void:
         "attacker_id": attacker.minion_id,
         "defender_id": defender.minion_id,
         "attacker_attack": attacker.current_attack,
-        "defender_attack": defender.current_attack
+        "attacker_health": attacker.current_health,
+        "defender_attack": defender.current_attack,
+        "defender_health": defender.current_health
     })
     
     # Simultaneous damage
@@ -1437,7 +1446,8 @@ func create_player_combat_army() -> Array:
     
     for child in $MainLayout/PlayerBoard.get_children():
         if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
-            var combat_id = "player_minion_%d_%s" % [minion_index, str(Time.get_ticks_msec())]
+            var card_name = child.card_data.get("id", "unknown")
+            var combat_id = "pm_%d_%s" % [minion_index, card_name]
             var combat_minion = CombatMinion.create_from_board_minion(child, combat_id)
             combat_minion.position = minion_index
             combat_army.append(combat_minion)
@@ -1457,7 +1467,8 @@ func create_enemy_combat_army(enemy_board_name: String) -> Array:
     
     var minion_index = 0
     for enemy_minion_data in enemy_board_data.get("minions", []):
-        var combat_id = "enemy_minion_%d_%s" % [minion_index, str(Time.get_ticks_msec())]
+        var card_name = enemy_minion_data.get("card_id", "unknown")
+        var combat_id = "em_%d_%s" % [minion_index, card_name]
         var combat_minion = CombatMinion.create_from_enemy_data(enemy_minion_data, combat_id)
         combat_minion.position = minion_index
         combat_army.append(combat_minion)
