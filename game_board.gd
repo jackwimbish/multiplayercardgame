@@ -22,7 +22,31 @@ var max_board_size: int = 7
 
 
 func _on_card_clicked(card_node):
-    print("A card was selected: ", card_node.get_node("VBoxContainer/CardName").text)
+    var card_name = card_node.get_node("VBoxContainer/CardName").text
+    print("A card was clicked: ", card_name)
+    
+    # Check if this card is in the hand (only hand cards should be clickable for casting)
+    var is_in_hand = false
+    for hand_card in $MainLayout/PlayerHand.get_children():
+        if hand_card == card_node:
+            is_in_hand = true
+            break
+    
+    if not is_in_hand:
+        print("Card not in hand - ignoring click")
+        return
+    
+    # Get card data to check if it's a spell
+    var card_data = _find_card_data_by_name(card_name)
+    if card_data.is_empty():
+        print("Error: Could not find card data for ", card_name)
+        return
+    
+    # Handle spell casting
+    if card_data.get("type", "") == "spell":
+        _cast_spell(card_node, card_data)
+    else:
+        print(card_name, " is a minion - drag to board to play")
 
 func update_hand_count():
     var hand_size = get_hand_size()
@@ -315,10 +339,16 @@ func _on_card_dropped(card):
             _handle_hand_reorder_drop(card)
         ["hand", "board"]:
             _handle_hand_to_board_drop(card)
+        ["board", "board"]:
+            _handle_board_reorder_drop(card)
+        ["board", "hand"]:
+            _handle_board_to_hand_drop(card)
         ["shop", "board"], ["shop", "shop"], ["shop", "invalid"]:
             _handle_invalid_shop_drop(card)
         ["hand", "shop"], ["hand", "invalid"]:
             _handle_invalid_hand_drop(card)
+        ["board", "shop"], ["board", "invalid"]:
+            _handle_invalid_board_drop(card)
         _:
             print("Unhandled drop scenario: ", origin_zone, " -> ", drop_zone)
             _return_card_to_origin(card, origin_zone)
@@ -392,9 +422,31 @@ func _handle_hand_reorder_drop(card):
         $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
 
 func _handle_hand_to_board_drop(card):
-    """Handle playing a card from hand to board (future feature)"""
-    print("Hand to board not implemented yet - returning to hand")
-    _return_card_to_hand(card)
+    """Handle playing a minion from hand to board"""
+    # Get card data to check if it's a minion
+    var card_name = card.get_node("VBoxContainer/CardName").text
+    var card_data = _find_card_data_by_name(card_name)
+    
+    if card_data.is_empty():
+        print("Error: Could not find card data for ", card_name)
+        _return_card_to_hand(card)
+        return
+    
+    # Only minions can be played to the board
+    if card_data.get("type", "") != "minion":
+        print(card_name, " is not a minion - returning to hand")
+        _return_card_to_hand(card)
+        return
+    
+    # Check if board is full
+    if is_board_full():
+        print("Cannot play minion - board is full (", get_board_size(), "/", max_board_size, ")")
+        _return_card_to_hand(card)
+        return
+    
+    # Play the minion to the board
+    _play_minion_to_board(card)
+    print("Played ", card_name, " to board")
 
 func _handle_invalid_shop_drop(card):
     """Handle invalid drops for shop cards"""
@@ -405,6 +457,49 @@ func _handle_invalid_hand_drop(card):
     """Handle invalid drops for hand cards"""
     print("Invalid drop for hand card - returning to hand")
     _return_card_to_hand(card)
+
+func _handle_board_reorder_drop(card):
+    """Handle reordering minions within the board"""
+    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var new_index = -1
+
+    # Find where to place the minion based on its X position
+    # Skip the label when calculating position
+    for i in range(cards_on_board.size()):
+        if cards_on_board[i].name == "PlayerBoardLabel":
+            continue
+        if card.global_position.x < cards_on_board[i].global_position.x:
+            new_index = i
+            break
+
+    # Put the card back into the board container
+    card.reparent($MainLayout/PlayerBoard)
+
+    # Move it to the calculated position
+    if new_index != -1:
+        $MainLayout/PlayerBoard.move_child(card, new_index)
+    else:
+        # If it was dropped past the last card, move it to the end
+        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+
+func _handle_board_to_hand_drop(card):
+    """Handle returning a minion from board to hand"""
+    # Check if hand has space
+    if is_hand_full():
+        print("Cannot return minion to hand - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+        _return_card_to_board(card)
+        return
+    
+    # Move minion back to hand
+    card.reparent($MainLayout/PlayerHand)
+    update_hand_count()
+    update_board_count()
+    print("Returned minion to hand")
+
+func _handle_invalid_board_drop(card):
+    """Handle invalid drops for board cards"""
+    print("Invalid drop for board card - returning to board")
+    _return_card_to_board(card)
 
 func _return_card_to_origin(card, origin_zone: String):
     """Return card to its original zone"""
@@ -443,6 +538,42 @@ func _convert_shop_card_to_hand_card(shop_card, card_id: String):
     # Update counts
     update_hand_count()
 
+func _find_card_data_by_name(card_name: String) -> Dictionary:
+    """Find card data by card name from the database"""
+    for card_id in CardDatabase.get_all_card_ids():
+        var card_data = CardDatabase.get_card_data(card_id)
+        if card_data.get("name", "") == card_name:
+            return card_data
+    return {}
+
+func _play_minion_to_board(card):
+    """Move a minion card from hand to board with proper positioning"""
+    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var new_index = -1
+    
+    # Find where to place the minion based on its X position
+    # Skip the label when calculating position
+    for i in range(cards_on_board.size()):
+        if cards_on_board[i].name == "PlayerBoardLabel":
+            continue
+        if card.global_position.x < cards_on_board[i].global_position.x:
+            new_index = i
+            break
+    
+    # Move card to board
+    card.reparent($MainLayout/PlayerBoard)
+    
+    # Position the card appropriately
+    if new_index != -1:
+        $MainLayout/PlayerBoard.move_child(card, new_index)
+    else:
+        # If dropped past the last card, move to end (but before label if it exists)
+        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+    
+    # Update counts
+    update_hand_count()
+    update_board_count()
+
 func _unhandled_input(event):
     if dragged_card: # This check is now primary
         if event is InputEventMouseMotion:
@@ -476,8 +607,20 @@ func _update_drop_zone_feedback():
             # Valid reorder zone
             _highlight_container($MainLayout/PlayerHand, Color.BLUE)
         ["hand", "board"]:
-            # Future feature zone
-            _highlight_container($MainLayout/PlayerBoard, Color.YELLOW)
+            # Valid minion play zone (check if it's actually a minion)
+            if _is_dragged_card_minion():
+                _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
+            else:
+                _highlight_container($MainLayout/PlayerBoard, Color.RED)
+        ["board", "board"]:
+            # Valid minion reorder zone
+            _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
+        ["board", "hand"]:
+            # Valid return to hand zone
+            if not is_hand_full():
+                _highlight_container($MainLayout/PlayerHand, Color.MAGENTA)
+            else:
+                _highlight_container($MainLayout/PlayerHand, Color.RED)
         ["shop", "board"], ["shop", "shop"]:
             # Invalid zones for shop cards
             _highlight_invalid_zone(current_drop_zone)
@@ -501,6 +644,35 @@ func _highlight_invalid_zone(zone_name: String):
     """Show feedback for invalid drop zones"""
     # For now, just ensure other zones aren't highlighted
     pass
+
+func _is_dragged_card_minion() -> bool:
+    """Check if the currently dragged card is a minion"""
+    if not dragged_card:
+        return false
+    
+    var card_name = dragged_card.get_node("VBoxContainer/CardName").text
+    var card_data = _find_card_data_by_name(card_name)
+    return card_data.get("type", "") == "minion"
+
+func _cast_spell(spell_card, card_data: Dictionary):
+    """Cast a spell card and apply its effects"""
+    var spell_name = card_data.get("name", "Unknown Spell")
+    print("Casting spell: ", spell_name)
+    
+    # Apply spell effects based on card
+    match card_data.get("name", ""):
+        "The Coin":
+            # Gain 1 gold immediately
+            gain_gold(1)
+            print("Gained 1 gold from The Coin")
+        _:
+            print("Spell effect not implemented for: ", spell_name)
+    
+    # Remove the spell card from hand (spells are consumed when cast)
+    spell_card.queue_free()
+    update_hand_count()
+    
+    print("Spell ", spell_name, " cast and removed from hand")
 
 func _ready():
     # Initialize game state
