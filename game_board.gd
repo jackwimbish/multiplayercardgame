@@ -12,6 +12,15 @@ var bonus_gold: int = 0
 var shop_tier: int = 1
 var card_pool: Dictionary = {}
 
+# Player Health System (Phase 2A.4)
+@export var player_health: int = 25
+@export var enemy_health: int = 25
+@export var combat_damage: int = 5
+
+signal player_health_changed(new_health: int)
+signal enemy_health_changed(new_health: int)
+signal game_over(winner: String)
+
 # Constants
 const GLOBAL_GOLD_MAX = 255
 
@@ -715,6 +724,47 @@ func _cast_spell(spell_card, card_data: Dictionary):
     
     print("Spell ", spell_name, " cast and removed from hand")
 
+# Player Health System Functions (Phase 2A.4)
+
+func take_damage(damage: int, is_player: bool = true) -> void:
+    """Apply damage to player or enemy and check for game over"""
+    if is_player:
+        player_health = max(0, player_health - damage)
+        player_health_changed.emit(player_health)
+        print("Player took %d damage, health now: %d" % [damage, player_health])
+        if player_health <= 0:
+            game_over.emit("enemy")
+            print("GAME OVER - Enemy wins!")
+    else:
+        enemy_health = max(0, enemy_health - damage)
+        enemy_health_changed.emit(enemy_health)
+        print("Enemy took %d damage, health now: %d" % [damage, enemy_health])
+        if enemy_health <= 0:
+            game_over.emit("player")
+            print("GAME OVER - Player wins!")
+
+func get_player_health() -> int:
+    """Get current player health"""
+    return player_health
+
+func get_enemy_health() -> int:
+    """Get current enemy health"""
+    return enemy_health
+
+func reset_health() -> void:
+    """Reset both players to starting health (for testing)"""
+    player_health = 25
+    enemy_health = 25
+    player_health_changed.emit(player_health)
+    enemy_health_changed.emit(enemy_health)
+    print("Health reset - Player: %d, Enemy: %d" % [player_health, enemy_health])
+
+func set_enemy_health(health: int) -> void:
+    """Set enemy health (useful for testing different enemy board healths)"""
+    enemy_health = max(0, health)
+    enemy_health_changed.emit(enemy_health)
+    print("Enemy health set to: %d" % enemy_health)
+
 # NEW: Tavern Phase Buff Application Functions
 
 func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion: MinionCard
@@ -899,6 +949,45 @@ func test_combat_minion_system() -> void:
     
     print("================================\n")
 
+# Player Health System Test (Phase 2A.4)
+func test_health_system() -> void:
+    """Test function to demonstrate health system functionality"""
+    print("\n=== Player Health System Test ===")
+    
+    print("Initial state:")
+    print("  Player health: %d" % player_health)
+    print("  Enemy health: %d" % enemy_health)
+    print("  Combat damage: %d" % combat_damage)
+    
+    print("\nTesting damage application:")
+    
+    # Test player taking damage
+    print("Player takes %d damage..." % combat_damage)
+    take_damage(combat_damage, true)
+    
+    # Test enemy taking damage  
+    print("Enemy takes %d damage..." % combat_damage)
+    take_damage(combat_damage, false)
+    
+    print("\nAfter combat damage:")
+    print("  Player health: %d" % player_health)
+    print("  Enemy health: %d" % enemy_health)
+    
+    # Test health reset
+    print("\nResetting health...")
+    reset_health()
+    
+    # Test game over scenario
+    print("\nTesting game over scenario:")
+    print("Setting player health to 3...")
+    player_health = 3
+    player_health_changed.emit(player_health)
+    
+    print("Player takes %d damage (should trigger game over)..." % combat_damage)
+    take_damage(combat_damage, true)
+    
+    print("=================================\n")
+
 # Combat preparation functions
 func create_player_combat_army() -> Array:
     """Create CombatMinion array from player's board"""
@@ -977,6 +1066,14 @@ func _ready():
     update_hand_count()
     update_board_count()
     
+    # Initialize health system (Phase 2A.4)
+    print("Health System initialized - Player: %d, Enemy: %d" % [player_health, enemy_health])
+    
+    # Connect health signals (UI nodes may not exist yet, so this prepares for future UI)
+    player_health_changed.connect(_on_player_health_changed)
+    enemy_health_changed.connect(_on_enemy_health_changed)
+    game_over.connect(_on_game_over)
+    
     # Enemy board system is ready - call test_enemy_board_system() manually to test
     
     # Initialize shop with cards
@@ -987,6 +1084,22 @@ func _ready():
     add_card_to_hand("dire_wolf_alpha")
     add_card_to_hand("coin")  # Test spell card (no attack/health)
     add_card_to_hand("kindly_grandmother")
+
+# Health system signal handlers (Phase 2A.4)
+func _on_player_health_changed(new_health: int) -> void:
+    """Handle player health changes (future UI updates)"""
+    print("Player health changed to: %d" % new_health)
+    # TODO: Update health display UI when available
+
+func _on_enemy_health_changed(new_health: int) -> void:
+    """Handle enemy health changes (future UI updates)"""
+    print("Enemy health changed to: %d" % new_health)
+    # TODO: Update health display UI when available
+
+func _on_game_over(winner: String) -> void:
+    """Handle game over state"""
+    print("Game Over! Winner: %s" % winner)
+    # TODO: Show game over screen/dialog when UI is available
 
 
 func _on_refresh_shop_button_pressed() -> void:
@@ -1005,7 +1118,8 @@ func _on_upgrade_shop_button_pressed() -> void:
 
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
-    # TEST: Run combat minion system test instead of normal end turn
+    # TEST: Run all system tests instead of normal end turn
+    test_health_system()
     test_combat_minion_system()
     simulate_combat_preparation("mid_game")
     # Uncomment below for normal end turn behavior:
