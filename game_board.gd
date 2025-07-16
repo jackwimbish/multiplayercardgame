@@ -1489,6 +1489,19 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         "enemy_minions": enemy_minions.size()
     })
     
+    # Check for immediate win conditions (empty armies)
+    if player_minions.is_empty() and enemy_minions.is_empty():
+        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+        return action_log
+    elif player_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
+        take_damage(combat_damage, true)
+        return action_log
+    elif enemy_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
+        take_damage(combat_damage, false)
+        return action_log
+    
     # Determine who goes first: more minions = first attack, equal count = random
     var p_turn: bool
     if player_minions.size() > enemy_minions.size():
@@ -1503,29 +1516,13 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         var first_attacker = "player" if p_turn else "enemy"
         action_log.append({"type": "first_attacker", "attacker": first_attacker, "reason": "random_equal_minions"})
     
-    # Main combat loop - check turn conditions before each attack
+    # Main combat loop
     while attack_count < max_attacks:
-        # Check if current player can attack
-        if p_turn:
-            # Player's turn
-            if player_minions.is_empty():
-                if enemy_minions.is_empty():
-                    action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-                    break
-                else:
-                    action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
-                    take_damage(combat_damage, true)
-                    break
-        else:
-            # Enemy's turn
-            if enemy_minions.is_empty():
-                if player_minions.is_empty():
-                    action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-                    break
-                else:
-                    action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
-                    take_damage(combat_damage, false)
-                    break
+        # Check if combat should continue (both sides have minions)
+        if player_minions.is_empty() or enemy_minions.is_empty():
+            # This should be caught by the post-attack win condition check,
+            # but this is a safety check for the first iteration
+            break
         
         # Current player has minions - select attacker and defender
         var attacker
@@ -1556,6 +1553,19 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         # Remove dead minions
         player_minions = player_minions.filter(func(m): return m.current_health > 0)
         enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
+        
+        # Check win conditions after removing dead minions
+        if player_minions.is_empty() and enemy_minions.is_empty():
+            action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+            break
+        elif player_minions.is_empty():
+            action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
+            take_damage(combat_damage, true)
+            break
+        elif enemy_minions.is_empty():
+            action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
+            take_damage(combat_damage, false)
+            break
         
         # Advance turn
         if p_turn:

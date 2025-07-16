@@ -195,14 +195,30 @@ static func is_card_shop_available(card_id: String) -> bool:
 
 static func get_card_art_path(card_id: String) -> String:
     """Get the art path for a card, with fallback to default art"""
-    # For now, always return default art path
-    # Later this can check for specific card art files first
     var default_path = "res://assets/images/cards/default/default_card_art.png"
     
-    # Future implementation could check:
-    # var card_data = get_card_data(card_id)
-    # var tier = card_data.get("tier", 1)
-    # var specific_path = "res://assets/images/cards/tier%d/%s.png" % [tier, card_id]
-    # return specific_path if FileAccess.file_exists(specific_path) else default_path
+    # Get card data to determine type and tier
+    var card_data = get_card_data(card_id)
+    if card_data.is_empty():
+        return default_path
     
-    return default_path
+    var card_type = card_data.get("type", "minion")
+    var specific_path = ""
+    
+    # Check for specific card art based on type
+    match card_type:
+        "spell":
+            specific_path = "res://assets/images/cards/spells/%s.png" % card_id
+        "minion":
+            var tier = card_data.get("tier", 1)
+            specific_path = "res://assets/images/cards/tier%d/%s.png" % [tier, card_id]
+        _:
+            # Unknown type, try default minion path
+            var tier = card_data.get("tier", 1)
+            specific_path = "res://assets/images/cards/tier%d/%s.png" % [tier, card_id]
+    
+    # Check if specific art file exists, otherwise use default
+    if FileAccess.file_exists(specific_path):
+        return specific_path
+    else:
+        return default_path

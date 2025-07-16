@@ -50,9 +50,11 @@ layout_mode = 2
 size_flags_vertical = 0
 
 [node name="ShopAreaLabel" type="Label" parent="MainLayout/ShopArea"]
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 size_flags_horizontal = 0
 text = "Shop"
+horizontal_alignment = 1
 
 [node name="PlayerBoard" type="HBoxContainer" parent="MainLayout"]
 custom_minimum_size = Vector2(0, 280)
@@ -60,9 +62,11 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="PlayerBoardLabel" type="Label" parent="MainLayout/PlayerBoard"]
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 size_flags_horizontal = 0
 text = "Your Board (0/7)"
+horizontal_alignment = 1
 
 [node name="PlayerHand" type="HBoxContainer" parent="MainLayout"]
 custom_minimum_size = Vector2(0, 280)
@@ -70,9 +74,11 @@ layout_mode = 2
 size_flags_vertical = 0
 
 [node name="PlayerHandLabel" type="Label" parent="MainLayout/PlayerHand"]
+custom_minimum_size = Vector2(120, 0)
 layout_mode = 2
 size_flags_horizontal = 0
 text = "Your Hand (0/10)"
+horizontal_alignment = 1
 
 [connection signal="pressed" from="MainLayout/TopUI/RefreshShopButton" to="." method="_on_refresh_shop_button_pressed"]
 [connection signal="pressed" from="MainLayout/TopUI/UpgradeShopButton" to="." method="_on_upgrade_shop_button_pressed"]
