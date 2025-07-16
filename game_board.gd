@@ -57,20 +57,20 @@ func update_board_count():
     $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/" + str(max_board_size) + ")"
 
 func initialize_card_pool():
-    """Set up card availability tracking based on tier and copy counts"""
+    """Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
     card_pool.clear()
     
     # Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
     var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
     
-    # Initialize pool for each card based on its tier
-    for card_id in CardDatabase.get_all_card_ids():
+    # Initialize pool for each shop-available card based on its tier
+    for card_id in CardDatabase.get_all_shop_available_card_ids():
         var card_data = CardDatabase.get_card_data(card_id)
         var tier = card_data.get("tier", 1)
         var copy_count = copies_by_tier.get(tier, 1)
         card_pool[card_id] = copy_count
     
-    print("Card pool initialized: ", card_pool)
+    print("Card pool initialized (shop cards only): ", card_pool)
 
 func get_shop_size_for_tier(tier: int) -> int:
     """Get number of cards shown in shop for given tier"""
@@ -82,18 +82,18 @@ func get_shop_size_for_tier(tier: int) -> int:
         _: return 3  # Default fallback
 
 func get_random_card_for_tier(tier: int) -> String:
-    """Get a random card ID for the specified tier that's available in the pool"""
+    """Get a random card ID for the specified tier that's available in the pool and shop"""
     var available_cards = []
     
-    # Find all cards of this tier that have remaining copies
+    # Find all cards of this tier that have remaining copies AND are shop-available
     for card_id in card_pool.keys():
         if card_pool[card_id] > 0:  # Has remaining copies
             var card_data = CardDatabase.get_card_data(card_id)
-            if card_data.get("tier", 1) == tier:
+            if card_data.get("tier", 1) == tier and card_data.get("shop_available", true):
                 available_cards.append(card_id)
     
     if available_cards.is_empty():
-        print("Warning: No available cards for tier ", tier)
+        print("Warning: No available shop cards for tier ", tier)
         return ""
     
     # Return random card from available options
@@ -141,6 +141,29 @@ func add_card_to_hand_direct(card_id: String):
     
     $MainLayout/PlayerHand.add_child(new_card)
     update_hand_count()
+
+func add_generated_card_to_hand(card_id: String) -> bool:
+    """Add a generated card (like The Coin) to hand - bypasses shop restrictions"""
+    if is_hand_full():
+        print("Cannot add generated card - hand is full")
+        return false
+    
+    var card_data = CardDatabase.get_card_data(card_id)
+    if card_data.is_empty():
+        print("Cannot add generated card - card not found: ", card_id)
+        return false
+    
+    var new_card = CardScene.instantiate()
+    new_card.setup_card_data(card_data)
+    
+    new_card.card_clicked.connect(_on_card_clicked)
+    new_card.drag_started.connect(_on_card_drag_started)
+    
+    $MainLayout/PlayerHand.add_child(new_card)
+    update_hand_count()
+    
+    print("Added generated card to hand: ", card_data.get("name", "Unknown"))
+    return true
 
 
 
@@ -476,7 +499,7 @@ func _handle_board_reorder_drop(card):
 
     # Put the card back into the board container
     card.reparent($MainLayout/PlayerBoard)
-    
+
     # Move it to the calculated position
     if new_index != -1:
         $MainLayout/PlayerBoard.move_child(card, new_index)
