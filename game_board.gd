@@ -28,6 +28,12 @@ var player_health_label: Label
 var enemy_health_label: Label
 var start_combat_button: Button
 var combat_ui_container: VBoxContainer
+var return_to_shop_button: Button
+
+# Combat Screen State Management
+enum GameMode { SHOP, COMBAT }
+var current_mode: GameMode = GameMode.SHOP
+var current_enemy_board_name: String = ""
 
 # Constants
 const GLOBAL_GOLD_MAX = 255
@@ -870,6 +876,158 @@ func update_health_displays() -> void:
     if enemy_health_label:
         enemy_health_label.text = "Enemy Health: %d" % enemy_health
 
+# Combat Screen Mode Management
+
+func switch_to_combat_mode(enemy_board_name: String) -> void:
+    """Switch to combat screen view"""
+    current_mode = GameMode.COMBAT
+    current_enemy_board_name = enemy_board_name
+    
+    # Hide shop elements
+    _hide_shop_elements()
+    
+    # Show enemy board in shop area
+    _display_enemy_board_in_shop_area(enemy_board_name)
+    
+    # Update combat UI for combat mode
+    _update_combat_ui_for_combat_mode()
+    
+    # Hide/minimize hand area
+    _minimize_hand_area()
+    
+    print("Switched to combat mode vs %s" % enemy_board_name)
+
+func switch_to_shop_mode() -> void:
+    """Switch back to shop/tavern view"""
+    current_mode = GameMode.SHOP
+    current_enemy_board_name = ""
+    
+    # Show shop elements
+    _show_shop_elements()
+    
+    # Clear enemy board from shop area
+    _clear_enemy_board_from_shop_area()
+    
+    # Update combat UI for shop mode
+    _update_combat_ui_for_shop_mode()
+    
+    # Show hand area normally
+    _show_hand_area()
+    
+    print("Switched to shop mode")
+
+func _hide_shop_elements() -> void:
+    """Hide shop cards and shop-related buttons"""
+    # Hide shop cards
+    for child in $MainLayout/ShopArea.get_children():
+        child.visible = false
+    
+    # Hide shop-related buttons
+    $MainLayout/TopUI/RefreshShopButton.visible = false
+    $MainLayout/TopUI/UpgradeShopButton.visible = false
+
+func _show_shop_elements() -> void:
+    """Show shop cards and shop-related buttons"""
+    # Show shop cards
+    for child in $MainLayout/ShopArea.get_children():
+        child.visible = true
+    
+    # Show shop-related buttons
+    $MainLayout/TopUI/RefreshShopButton.visible = true
+    $MainLayout/TopUI/UpgradeShopButton.visible = true
+
+func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
+    """Create and display enemy minions in the shop area"""
+    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
+    if enemy_board_data.is_empty():
+        print("Failed to load enemy board: %s" % enemy_board_name)
+        return
+    
+    # Add enemy board label
+    var enemy_label = Label.new()
+    enemy_label.name = "EnemyBoardLabel"
+    enemy_label.text = "Enemy Board: %s" % enemy_board_data.get("name", enemy_board_name)
+    enemy_label.add_theme_color_override("font_color", Color.RED)
+    $MainLayout/ShopArea.add_child(enemy_label)
+    
+    # Create visual representations of enemy minions
+    for i in range(enemy_board_data.get("minions", []).size()):
+        var enemy_minion_data = enemy_board_data.minions[i]
+        var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
+        
+        # Apply any buffs to the card data for display
+        for buff_data in enemy_minion_data.get("buffs", []):
+            if buff_data.type == "stat_modification":
+                card_data.attack += buff_data.get("attack_bonus", 0)
+                card_data.health += buff_data.get("health_bonus", 0)
+        
+        # Create enemy card display
+        var enemy_card = create_card_instance(card_data, enemy_minion_data.card_id)
+        enemy_card.name = "EnemyMinion_%d" % i
+        
+        # Make enemy cards non-interactive
+        enemy_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        
+        # Add visual indication this is an enemy
+        enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
+        
+        $MainLayout/ShopArea.add_child(enemy_card)
+
+func _clear_enemy_board_from_shop_area() -> void:
+    """Remove enemy minions from shop area"""
+    var children_to_remove = []
+    for child in $MainLayout/ShopArea.get_children():
+        if child.name.begins_with("EnemyMinion_") or child.name == "EnemyBoardLabel":
+            children_to_remove.append(child)
+    
+    for child in children_to_remove:
+        child.queue_free()
+
+func _minimize_hand_area() -> void:
+    """Minimize hand area during combat"""
+    $MainLayout/PlayerHand.visible = false
+
+func _show_hand_area() -> void:
+    """Show hand area normally during shop phase"""
+    $MainLayout/PlayerHand.visible = true
+
+func _update_combat_ui_for_combat_mode() -> void:
+    """Update combat UI elements for combat mode"""
+    if start_combat_button:
+        start_combat_button.visible = false
+    
+    if enemy_board_selector:
+        enemy_board_selector.get_parent().visible = false
+    
+    # Create return to shop button if it doesn't exist
+    if not return_to_shop_button:
+        return_to_shop_button = Button.new()
+        return_to_shop_button.name = "ReturnToShopButton"
+        return_to_shop_button.text = "Return to Shop"
+        combat_ui_container.add_child(return_to_shop_button)
+        return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
+    
+    return_to_shop_button.visible = true
+    
+    # Make combat log more prominent
+    if combat_log_display:
+        combat_log_display.custom_minimum_size = Vector2(600, 300)
+
+func _update_combat_ui_for_shop_mode() -> void:
+    """Update combat UI elements for shop mode"""
+    if start_combat_button:
+        start_combat_button.visible = true
+    
+    if enemy_board_selector:
+        enemy_board_selector.get_parent().visible = true
+    
+    if return_to_shop_button:
+        return_to_shop_button.visible = false
+    
+    # Make combat log smaller during shop mode
+    if combat_log_display:
+        combat_log_display.custom_minimum_size = Vector2(400, 200)
+
 func display_combat_log(action_log: Array) -> void:
     """Display combat actions in the combat log"""
     if not combat_log_display:
@@ -944,9 +1102,22 @@ func _on_start_combat_button_pressed() -> void:
     var selected_board_name = board_names[selected_index]
     print("Starting combat against: %s" % selected_board_name)
     
+    # Switch to combat screen
+    switch_to_combat_mode(selected_board_name)
+    
     # Run combat simulation and display results
     var combat_result = simulate_full_combat(selected_board_name)
     display_combat_log(combat_result)
+
+func _on_return_to_shop_button_pressed() -> void:
+    """Handle return to shop button press - advance turn and switch back to shop"""
+    print("Return to shop button pressed")
+    
+    # Advance to next turn
+    start_new_turn()
+    
+    # Switch back to shop mode
+    switch_to_shop_mode()
 
 func _on_enemy_board_selected(index: int) -> void:
     """Handle enemy board selection change"""
@@ -1057,9 +1228,11 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
     if attack_count >= max_attacks:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
     
-    # After combat ends, start the next turn
-    action_log.append({"type": "turn_start", "turn": current_turn + 1})
-    start_new_turn()
+    # Don't auto-advance turn in combat mode - player uses "Return to Shop" button
+    if current_mode == GameMode.SHOP:
+        # After combat ends, start the next turn (for testing mode)
+        action_log.append({"type": "turn_start", "turn": current_turn + 1})
+        start_new_turn()
     
     return action_log
 
