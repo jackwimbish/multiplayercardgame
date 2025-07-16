@@ -1,3 +1,4 @@
+class_name Card
 extends PanelContainer
 signal card_clicked
 
@@ -8,6 +9,9 @@ var is_being_dragged: bool = false
 var drag_offset = Vector2.ZERO
 var mouse_press_position: Vector2
 const DRAG_THRESHOLD_DISTANCE = 10.0  # pixels before drag starts
+
+# Card data storage
+var card_data: Dictionary = {}
 
 func _ready():
     # Set consistent card sizing automatically
@@ -50,14 +54,17 @@ func _gui_input(event):
                 is_being_dragged = true
 
 func setup_card_data(data: Dictionary):
-    # "data" is a Dictionary with card info
-    # Safely handle card data that may or may not have all fields
+    # Store card data for future reference
+    card_data = data
+    
+    # Set up UI elements
     $VBoxContainer/CardName.text = data.get("name", "Unnamed")
     $VBoxContainer/CardDescription.text = data.get("description", "")
     
-    # Show attack/health stats at bottom left for minions (with forward slash)
+    # Show/hide stats based on card type - base implementation for spells
     if data.has("attack") and data.has("health"):
-        $VBoxContainer/BottomRow/StatsLabel.text = str(data["attack"]) + "/" + str(data["health"])
+        # This will be overridden in MinionCard
+        $VBoxContainer/BottomRow/StatsLabel.text = str(data.get("attack", 0)) + "/" + str(data.get("health", 0))
         $VBoxContainer/BottomRow/StatsLabel.show()
     else:
         # Hide stats for spells or cards without both attack and health

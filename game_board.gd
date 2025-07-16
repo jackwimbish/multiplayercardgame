@@ -114,11 +114,23 @@ func refresh_shop():
         if card_id != "":
             add_card_to_shop(card_id)
 
+func create_card_instance(card_data: Dictionary):
+    """Create the appropriate card instance based on card type"""
+    var new_card = CardScene.instantiate()
+    
+    # If it's a minion, swap to MinionCard script
+    if card_data.get("type", "") == "minion":
+        # Load and apply the MinionCard script dynamically
+        var minion_script = load("res://minion_card.gd")
+        new_card.set_script(minion_script)
+    
+    new_card.setup_card_data(card_data)
+    return new_card
+
 func add_card_to_shop(card_id: String):
     """Add a card to the shop area"""
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = CardScene.instantiate()
-    new_card.setup_card_data(card_data)
+    var new_card = create_card_instance(card_data)
     
     # Connect drag handler for shop cards (drag-to-purchase)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -133,8 +145,7 @@ func add_card_to_shop(card_id: String):
 func add_card_to_hand_direct(card_id: String):
     """Add a card directly to hand (used by purchase system)"""
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = CardScene.instantiate()
-    new_card.setup_card_data(card_data)
+    var new_card = create_card_instance(card_data)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -153,8 +164,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         print("Cannot add generated card - card not found: ", card_id)
         return false
     
-    var new_card = CardScene.instantiate()
-    new_card.setup_card_data(card_data)
+    var new_card = create_card_instance(card_data)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -254,8 +264,7 @@ func is_board_full() -> bool:
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
-    var new_card = CardScene.instantiate()
-    new_card.setup_card_data(data)
+    var new_card = create_card_instance(data)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
@@ -701,6 +710,115 @@ func _cast_spell(spell_card, card_data: Dictionary):
     
     print("Spell ", spell_name, " cast and removed from hand")
 
+# NEW: Tavern Phase Buff Application Functions
+
+func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion: Card
+    """Apply persistent buff during tavern phase"""
+    if target_minion == null or buff == null:
+        print("Invalid target minion or buff")
+        return
+    
+    # Set buff as permanent since it's applied during tavern phase
+    if buff.has_method("set"):
+        buff.duration = 0  # Buff.Duration.PERMANENT = 0
+    
+    # Add to persistent buffs (survives between combats)
+    target_minion.add_persistent_buff(buff)
+    
+    print("Applied %s to %s during tavern phase" % [buff.get("display_name", "Unknown Buff"), target_minion.card_data.get("name", "Unknown")])
+
+func apply_tavern_upgrade_all_minions(attack_bonus: int, health_bonus: int) -> void:
+    """Apply tavern upgrade buff to all board minions"""
+    print("Applying tavern upgrade: +%d/+%d to all board minions" % [attack_bonus, health_bonus])
+    
+    var minions_buffed = 0
+    
+    # Apply to each board minion individually
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.has_method("add_persistent_buff") and child.name != "PlayerBoardLabel":
+            # Create a unique buff for each minion (non-stackable buffs need unique IDs)
+            var upgrade_buff = create_stat_modification_buff(
+                "tavern_upgrade_" + str(Time.get_ticks_msec()) + "_" + str(minions_buffed),
+                "+%d/+%d Tavern Upgrade" % [attack_bonus, health_bonus],
+                attack_bonus,
+                health_bonus
+            )
+            
+            apply_tavern_buff_to_minion(child, upgrade_buff)
+            minions_buffed += 1
+    
+    print("Tavern upgrade applied to %d minions" % minions_buffed)
+
+func find_minion_by_unique_id(unique_id: String):  # -> Card
+    """Find board minion by unique ID to handle duplicates"""
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.has_method("add_persistent_buff") and child.unique_board_id == unique_id:
+            return child
+    return null
+
+func create_stat_modification_buff(buff_id: String, display_name: String, attack_bonus: int, health_bonus: int):
+    """Create a stat modification buff (helper function until buff classes are loaded)"""
+    # This is a temporary implementation using Dictionary until buff classes are properly loaded
+    return {
+        "buff_id": buff_id,
+        "display_name": display_name,
+        "attack_bonus": attack_bonus,
+        "health_bonus": health_bonus,
+        "max_health_bonus": health_bonus,  # Health bonus also increases max health
+        "buff_type": 0,  # STAT_MODIFICATION = 0
+        "duration": 0,   # PERMANENT = 0
+        "stackable": false,
+        "apply_to_minion": func(minion): pass,  # Placeholder function
+        "remove_from_minion": func(minion): pass  # Placeholder function
+    }
+
+# Test function for the buff system
+func test_buff_system() -> void:
+    """Test function to demonstrate buff system functionality"""
+    print("\n=== Buff System Test ===")
+    
+    var board_minions = []
+    for child in $MainLayout/PlayerBoard.get_children():
+        if child.has_method("add_persistent_buff") and child.name != "PlayerBoardLabel":
+            board_minions.append(child)
+    
+    if board_minions.is_empty():
+        print("No minions on board to test buffs")
+        return
+    
+    print("Testing buff system with %d board minions:" % board_minions.size())
+    
+    # Show initial stats
+    for i in range(board_minions.size()):
+        var minion = board_minions[i]
+        print("  %d. %s: %d/%d (base: %d/%d)" % [
+            i + 1,
+            minion.card_data.get("name", "Unknown"),
+            minion.get_effective_attack(),
+            minion.get_effective_health(),
+            minion.base_attack,
+            minion.base_health
+        ])
+    
+    # Test applying a +1/+1 buff to first minion
+    if board_minions.size() > 0:
+        var test_buff = create_stat_modification_buff(
+            "test_buff_" + str(Time.get_ticks_msec()),
+            "+1/+1 Test Buff",
+            1, 1
+        )
+        
+        print("\nApplying +1/+1 test buff to first minion...")
+        apply_tavern_buff_to_minion(board_minions[0], test_buff)
+        
+        print("After buff - %s: %d/%d" % [
+            board_minions[0].card_data.get("name", "Unknown"),
+            board_minions[0].get_effective_attack(),
+            board_minions[0].get_effective_health()
+        ])
+    
+    print("========================\n")
+
 func _ready():
     # Initialize game state
     initialize_card_pool()
@@ -729,10 +847,10 @@ func _on_refresh_shop_button_pressed() -> void:
         print("Cannot refresh shop - need ", refresh_cost, " gold")
 
 func _on_upgrade_shop_button_pressed() -> void:
-    # Temporary test: Increase base gold (normally this would upgrade shop tier for 5 gold)
+    # Temporary test: Apply +1/+1 buff to all board minions (was: upgrade shop tier)
     if spend_gold(2):
-        increase_base_gold(1)
-        print("TEST: Spent 2 gold to increase base gold by 1")
+        apply_tavern_upgrade_all_minions(1, 1)
+        print("TEST: Spent 2 gold to give all board minions +1/+1")
 
 func _on_end_turn_button_pressed() -> void:
     print("End turn button pressed")
