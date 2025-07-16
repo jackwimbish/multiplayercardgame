@@ -60,6 +60,11 @@ const TAVERN_UPGRADE_BASE_COSTS = {
 var max_hand_size: int = 10
 var max_board_size: int = 7
 
+# UI font sizes
+const UI_FONT_SIZE_LARGE = 24    # Main labels, important text
+const UI_FONT_SIZE_MEDIUM = 20   # Secondary labels, buttons
+const UI_FONT_SIZE_SMALL = 16    # Supporting text
+
 
 
 func _on_card_clicked(card_node):
@@ -96,6 +101,32 @@ func update_hand_count():
 func update_board_count():
     var board_size = get_board_size()
     $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/" + str(max_board_size) + ")"
+
+func apply_ui_font_sizing() -> void:
+    """Apply consistent font sizing to all UI elements"""
+    # Top UI labels
+    $MainLayout/TopUI/GoldLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    $MainLayout/TopUI/ShopTierLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    
+    # Top UI buttons
+    $MainLayout/TopUI/RefreshShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
+    $MainLayout/TopUI/UpgradeShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
+    $MainLayout/TopUI/EndTurnButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
+    
+    # Area labels
+    $MainLayout/ShopArea/ShopAreaLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    $MainLayout/PlayerBoard/PlayerBoardLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    $MainLayout/PlayerHand/PlayerHandLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+
+func apply_font_to_label(label: Label, size: int) -> void:
+    """Helper function to apply font size to a label"""
+    if label:
+        label.add_theme_font_size_override("font_size", size)
+
+func apply_font_to_button(button: Button, size: int) -> void:
+    """Helper function to apply font size to a button"""  
+    if button:
+        button.add_theme_font_size_override("font_size", size)
 
 func initialize_card_pool():
     """Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
@@ -878,12 +909,14 @@ func create_combat_ui() -> void:
     player_health_label.name = "PlayerHealthLabel"
     player_health_label.text = "Player Health: %d" % player_health
     player_health_label.add_theme_color_override("font_color", Color.GREEN)
+    apply_font_to_label(player_health_label, UI_FONT_SIZE_LARGE)
     
     # Enemy health label  
     enemy_health_label = Label.new()
     enemy_health_label.name = "EnemyHealthLabel"
     enemy_health_label.text = "Enemy Health: %d" % enemy_health
     enemy_health_label.add_theme_color_override("font_color", Color.RED)
+    apply_font_to_label(enemy_health_label, UI_FONT_SIZE_LARGE)
     
     health_container.add_child(player_health_label)
     health_container.add_child(enemy_health_label)
@@ -894,9 +927,11 @@ func create_combat_ui() -> void:
     
     var enemy_label = Label.new()
     enemy_label.text = "Enemy Board: "
+    apply_font_to_label(enemy_label, UI_FONT_SIZE_MEDIUM)
     
     enemy_board_selector = OptionButton.new()
     enemy_board_selector.name = "EnemyBoardSelector"
+    apply_font_to_button(enemy_board_selector, UI_FONT_SIZE_MEDIUM)
     
     enemy_selection_container.add_child(enemy_label)
     enemy_selection_container.add_child(enemy_board_selector)
@@ -905,6 +940,7 @@ func create_combat_ui() -> void:
     start_combat_button = Button.new()
     start_combat_button.name = "StartCombatButton"
     start_combat_button.text = "Start Combat"
+    apply_font_to_button(start_combat_button, UI_FONT_SIZE_MEDIUM)
     
     # Create combat log display
     combat_log_display = RichTextLabel.new()
@@ -912,6 +948,8 @@ func create_combat_ui() -> void:
     combat_log_display.custom_minimum_size = Vector2(400, 200)
     combat_log_display.bbcode_enabled = true
     combat_log_display.scroll_following = true
+    combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_SMALL)
+    combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_MEDIUM)
     combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
     
     # Add all elements to combat UI container
@@ -980,6 +1018,10 @@ func switch_to_shop_mode() -> void:
     current_mode = GameMode.SHOP
     current_enemy_board_name = ""
     
+    # Restore original shop area label
+    $MainLayout/ShopArea/ShopAreaLabel.text = "Shop"
+    $MainLayout/ShopArea/ShopAreaLabel.remove_theme_color_override("font_color")
+    
     # Show shop elements
     _show_shop_elements()
     
@@ -1030,12 +1072,9 @@ func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
         print("Failed to load enemy board: %s" % enemy_board_name)
         return
     
-    # Add enemy board label
-    var enemy_label = Label.new()
-    enemy_label.name = "EnemyBoardLabel"
-    enemy_label.text = "Enemy Board: %s" % enemy_board_data.get("name", enemy_board_name)
-    enemy_label.add_theme_color_override("font_color", Color.RED)
-    $MainLayout/ShopArea.add_child(enemy_label)
+    # Update the existing shop area label to show enemy board
+    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Board: %s" % enemy_board_data.get("name", enemy_board_name)
+    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
     
     # Create visual representations of enemy minions
     for i in range(enemy_board_data.get("minions", []).size()):
@@ -1065,8 +1104,6 @@ func _clear_enemy_board_from_shop_area() -> void:
     var children_to_remove = []
     for child in $MainLayout/ShopArea.get_children():
         if (child.name.begins_with("EnemyMinion_") or 
-            child.name == "EnemyBoardLabel" or
-            child.name == "EnemyResultLabel" or
             child.name.begins_with("EnemyResult_") or
             child.name.begins_with("EnemyDead_")) and child.name != "ShopAreaLabel":
             children_to_remove.append(child)
@@ -1095,6 +1132,7 @@ func _update_combat_ui_for_combat_mode() -> void:
         return_to_shop_button = Button.new()
         return_to_shop_button.name = "ReturnToShopButton"
         return_to_shop_button.text = "Return to Shop"
+        apply_font_to_button(return_to_shop_button, UI_FONT_SIZE_MEDIUM)
         combat_ui_container.add_child(return_to_shop_button)
         return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
     
@@ -1107,6 +1145,8 @@ func _update_combat_ui_for_combat_mode() -> void:
     # Make combat log prominent and always visible
     if combat_log_display:
         combat_log_display.custom_minimum_size = Vector2(600, 300)
+        combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_MEDIUM)
+        combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_LARGE)
         combat_log_display.visible = true
 
 func _update_combat_ui_for_shop_mode() -> void:
@@ -1213,12 +1253,9 @@ func _display_final_player_board_with_dead() -> void:
 
 func _display_final_enemy_board_with_dead() -> void:
     """Display final enemy board state in shop area with dead minions visible"""
-    # Add result label
-    var result_label = Label.new()
-    result_label.name = "EnemyResultLabel"
-    result_label.text = "Enemy Final State"
-    result_label.add_theme_color_override("font_color", Color.RED)
-    $MainLayout/ShopArea.add_child(result_label)
+    # Update the existing shop area label to show final state
+    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
+    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
     
     # Show surviving enemy minions with dead minions
     for i in range(original_enemy_count):
@@ -1288,12 +1325,9 @@ func _display_final_player_board() -> void:
 
 func _display_final_enemy_board() -> void:
     """Display final enemy board state in shop area"""
-    # Add result label
-    var result_label = Label.new()
-    result_label.name = "EnemyResultLabel"
-    result_label.text = "Enemy Final State"
-    result_label.add_theme_color_override("font_color", Color.RED)
-    $MainLayout/ShopArea.add_child(result_label)
+    # Update the existing shop area label to show final state
+    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
+    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
     
     # Show surviving enemy minions with tombstones
     for i in range(original_enemy_count):
@@ -2118,6 +2152,9 @@ func _ready():
     update_hand_count()
     update_board_count()
     
+    # Apply larger fonts to UI elements
+    apply_ui_font_sizing()
+    
     # Initialize health system (Phase 2A.4)
     print("Health System initialized - Player: %d, Enemy: %d" % [player_health, enemy_health])
     
@@ -2136,11 +2173,7 @@ func _ready():
     # Initialize shop with cards
     refresh_shop()
     
-    # Deal a specific starting hand (mix of minions and spells for testing)
-    add_card_to_hand("murloc_raider")
-    add_card_to_hand("dire_wolf_alpha")
-    add_card_to_hand("coin")  # Test spell card (no attack/health)
-    add_card_to_hand("kindly_grandmother")
+    # Players start with an empty hand
 
 # Health system signal handlers (Phase 2A.4)
 func _on_player_health_changed(new_health: int) -> void:
