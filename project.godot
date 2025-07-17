@@ -23,7 +23,7 @@ CardFactory="*res://card_factory.gd"
 [display]
 
 window/size/viewport_width=1600
-window/size/viewport_height=1200
+window/size/viewport_height=1400
 
 [rendering]
 
