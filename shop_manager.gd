@@ -98,7 +98,7 @@ func _populate_shop_with_new_cards() -> void:
 func _add_card_to_shop(card_id: String) -> void:
 	"""Add a card to the shop area"""
 	var card_data = CardDatabase.get_card_data(card_id)
-	var new_card = _create_card_instance(card_data, card_id)
+	var new_card = CardFactory.create_card(card_data, card_id)
 	
 	# Connect drag handler for shop cards (drag-to-purchase)
 	new_card.drag_started.connect(_on_shop_card_drag_started)
@@ -109,24 +109,7 @@ func _add_card_to_shop(card_id: String) -> void:
 	shop_area.add_child(new_card)
 	current_shop_cards.append(card_id)
 
-func _create_card_instance(card_data: Dictionary, card_id: String = "") -> Node:
-	"""Create the appropriate card instance based on card type"""
-	const CardScene = preload("res://card.tscn")
-	var new_card = CardScene.instantiate()
-	
-	# Add card_id to card_data so it's preserved
-	var enhanced_card_data = card_data.duplicate()
-	if card_id != "":
-		enhanced_card_data["id"] = card_id
-	
-	# If it's a minion, swap to MinionCard script
-	if enhanced_card_data.get("type", "") == "minion":
-		# Load and apply the MinionCard script dynamically
-		var minion_script = load("res://minion_card.gd")
-		new_card.set_script(minion_script)
-	
-	new_card.setup_card_data(enhanced_card_data)
-	return new_card
+# Note: Card creation now handled by CardFactory autoload singleton
 
 # === PURCHASE LOGIC ===
 
@@ -194,7 +177,7 @@ func _handle_purchase_failure(card_id: String, result: Dictionary) -> void:
 func _add_card_to_hand_direct(card_id: String) -> void:
 	"""Add a card directly to hand (used by purchase system)"""
 	var card_data = CardDatabase.get_card_data(card_id)
-	var new_card = _create_card_instance(card_data, card_id)
+	var new_card = CardFactory.create_card(card_data, card_id)
 	
 	new_card.card_clicked.connect(ui_manager._on_card_clicked)
 	new_card.drag_started.connect(ui_manager._on_card_drag_started)

@@ -1,7 +1,6 @@
 extends Control
 
 const DEFAULT_PORT = 9999
-const CardScene = preload("res://card.tscn")
 const ShopManagerScript = preload("res://shop_manager.gd")
 const CombatManagerScript = preload("res://combat_manager.gd")
 var dragged_card = null
@@ -30,8 +29,8 @@ func _ready():
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
     
-    # Initialize CombatManager with card creation delegate
-    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, create_card_instance)
+    # Initialize CombatManager
+    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout)
     
     # Connect UI signals to game logic
     ui_manager.forward_card_clicked.connect(_on_card_clicked)
@@ -85,29 +84,13 @@ func update_board_count():
 
 # Note: Most shop functions moved to ShopManager
 
-func create_card_instance(card_data: Dictionary, card_id: String = ""):
-    """Create the appropriate card instance based on card type"""
-    var new_card = CardScene.instantiate()
-    
-    # Add card_id to card_data so it's preserved
-    var enhanced_card_data = card_data.duplicate()
-    if card_id != "":
-        enhanced_card_data["id"] = card_id
-    
-    # If it's a minion, swap to MinionCard script
-    if enhanced_card_data.get("type", "") == "minion":
-        # Load and apply the MinionCard script dynamically
-        var minion_script = load("res://minion_card.gd")
-        new_card.set_script(minion_script)
-    
-    new_card.setup_card_data(enhanced_card_data)
-    return new_card
+# Note: Card creation now handled by CardFactory autoload singleton
 
 func add_card_to_hand_direct(card_id: String):
     """Add a card directly to hand (delegated to ShopManager for purchase logic)"""
     # For purchases, delegate to ShopManager; for other uses, create card directly
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(card_data, card_id)
+    var new_card = CardFactory.create_card(card_data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -126,7 +109,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         print("Cannot add generated card - card not found: ", card_id)
         return false
     
-    var new_card = create_card_instance(card_data, card_id)
+    var new_card = CardFactory.create_card(card_data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -183,7 +166,7 @@ func update_ui_displays():
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(data, card_id)
+    var new_card = CardFactory.create_card(data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this

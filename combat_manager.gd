@@ -7,7 +7,6 @@ extends RefCounted
 # References to required components
 var ui_manager: UIManager
 var main_layout: Control  # For accessing board containers
-var card_creator: Callable  # Delegate for creating card instances
 
 # Combat state
 var current_enemy_board_name: String = ""
@@ -24,11 +23,10 @@ signal combat_started(enemy_board_name: String)
 signal combat_ended(result: Dictionary)
 signal mode_switched(new_mode: String)
 
-func _init(ui_manager_ref: UIManager, main_layout_ref: Control, card_creator_callable: Callable):
+func _init(ui_manager_ref: UIManager, main_layout_ref: Control):
 	"""Initialize CombatManager with required references"""
 	ui_manager = ui_manager_ref
 	main_layout = main_layout_ref
-	card_creator = card_creator_callable
 	
 	print("CombatManager initialized")
 
@@ -376,14 +374,13 @@ func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
 				card_data.attack += buff_data.get("attack_bonus", 0)
 				card_data.health += buff_data.get("health_bonus", 0)
 		
-		# Need to delegate card creation to game_board since it has create_card_instance
-		# This will be resolved when we update game_board integration
+		# Create enemy card using CardFactory
 		var enemy_card = _create_enemy_card_placeholder(card_data, enemy_minion_data.card_id, i)
 		main_layout.get_node("ShopArea").add_child(enemy_card)
 
 func _create_enemy_card_placeholder(card_data: Dictionary, card_id: String, index: int) -> Control:
-	"""Create enemy card display using delegated card creation"""
-	var enemy_card = card_creator.call(card_data, card_id)
+	"""Create enemy card display using CardFactory"""
+	var enemy_card = CardFactory.create_card(card_data, card_id)
 	enemy_card.name = "EnemyMinion_%d" % index
 	
 	# Make enemy cards non-interactive
@@ -594,25 +591,38 @@ func _display_final_enemy_board_with_dead() -> void:
 			main_layout.get_node("ShopArea").add_child(dead_minion)
 
 func _create_result_card_placeholder(minion: CombatMinion, index: int, is_player: bool) -> Control:
-	"""Temporary placeholder for result cards - will be replaced with proper card creation delegation"""
-	var placeholder = Label.new()
+	"""Create actual card visual showing final combat state"""
+	var card_data = CardDatabase.get_card_data(minion.source_card_id).duplicate()
+	
+	# Update card data with final combat stats
+	card_data["attack"] = minion.current_attack
+	card_data["health"] = minion.current_health
+	
+	# Create actual card using CardFactory
+	var result_card = CardFactory.create_card(card_data, minion.source_card_id)
 	var owner_prefix = "Player" if is_player else "Enemy"
-	var card_data = CardDatabase.get_card_data(minion.source_card_id)
-	placeholder.text = "%s: %s (%d/%d)" % [owner_prefix, card_data.get("name", "Unknown"), minion.current_attack, minion.current_health]
-	placeholder.name = "%sResult_%d" % [owner_prefix, index]
+	result_card.name = "%sResult_%d" % [owner_prefix, index]
 	
-	# Color coding for health
+	# Make card non-interactive
+	result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	
+	# Visual styling based on health status
 	if minion.current_health <= 0:
-		placeholder.modulate = Color.RED
+		result_card.modulate = Color(1.0, 0.3, 0.3, 0.8)  # Red tint for dead
 	elif minion.current_health < minion.max_health:
-		placeholder.modulate = Color.ORANGE
+		result_card.modulate = Color(1.0, 0.8, 0.4, 1.0)  # Orange tint for damaged
 	else:
-		placeholder.modulate = Color.WHITE
+		result_card.modulate = Color(0.8, 1.0, 0.8, 1.0)  # Green tint for undamaged
 	
-	return placeholder
+	# Add owner indication
+	if not is_player:
+		# Additional red tint for enemy cards
+		result_card.modulate = result_card.modulate * Color(1.0, 0.7, 0.7, 1.0)
+	
+	return result_card
 
 func _create_dead_minion_card(position: int, is_player: bool) -> Control:
-	"""Create a card showing a dead minion (greyed out with red health)"""
+	"""Create an actual card showing a dead minion (greyed out with 0 health)"""
 	# Find the original minion data at this position
 	var original_card_data = {}
 	var original_minions = []
@@ -647,12 +657,28 @@ func _create_dead_minion_card(position: int, is_player: bool) -> Control:
 			"id": "unknown"
 		}
 	
-	# Create placeholder for dead minion - will be replaced with proper card creation delegation
-	var placeholder = Label.new()
-	placeholder.text = "DEAD: %s (%d/0)" % [original_card_data.get("name", "Unknown"), original_card_data.get("attack", 0)]
-	placeholder.modulate = Color(0.6, 0.6, 0.6, 0.8)  # Greyed out
+	# Set health to 0 to show it's dead
+	original_card_data["health"] = 0
 	
-	return placeholder
+	# Create actual card using CardFactory
+	var dead_card = CardFactory.create_card(original_card_data, original_card_data.get("id", "unknown"))
+	
+	# Make card non-interactive
+	dead_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	
+	# Apply death visual effects
+	dead_card.modulate = Color(0.4, 0.4, 0.4, 0.7)  # Dark greyed out
+	
+	# Add "DEAD" overlay styling by modifying the health display color
+	var stats_label = dead_card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+	if stats_label:
+		stats_label.add_theme_color_override("font_color", Color.RED)
+	
+	# Add enemy indication if needed
+	if not is_player:
+		dead_card.modulate = dead_card.modulate * Color(1.0, 0.6, 0.6, 1.0)  # Additional red tint for enemy
+	
+	return dead_card
 
 func _restore_original_player_board() -> void:
 	"""Restore the player board to its original state (before combat result view)"""
