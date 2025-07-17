@@ -15,10 +15,15 @@ run/main_scene="uid://bjl58tv46o1q6"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 config/icon="res://icon.svg"
 
+[autoload]
+
+GameState="*res://game_state.gd"
+CardFactory="*res://card_factory.gd"
+
 [display]
 
 window/size/viewport_width=1600
-window/size/viewport_height=1200
+window/size/viewport_height=1400
 
 [rendering]
 

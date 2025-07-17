@@ -1,235 +1,96 @@
 extends Control
 
 const DEFAULT_PORT = 9999
-const CardScene = preload("res://card.tscn")
+const ShopManagerScript = preload("res://shop_manager.gd")
+const CombatManagerScript = preload("res://combat_manager.gd")
 var dragged_card = null
 
-# Core game state variables
-var current_turn: int = 1
-var player_base_gold: int = 3
-var current_gold: int = 3
-var bonus_gold: int = 0
-var shop_tier: int = 1
-var current_tavern_upgrade_cost: int = 5  # Current cost to upgrade tavern, decreases each turn
-var card_pool: Dictionary = {}
+# Core game state is now managed by GameState singleton
+# Access via GameState.current_turn, GameState.current_gold, etc.
 
-# Player Health System (Phase 2A.4)
-@export var player_health: int = 25
-@export var enemy_health: int = 25
-@export var combat_damage: int = 5
-
-signal player_health_changed(new_health: int)
-signal enemy_health_changed(new_health: int)
 signal game_over(winner: String)
 
-# Combat UI Integration (Phase 2B.2)
-var enemy_board_selector: OptionButton
-var combat_log_display: RichTextLabel  
-var player_health_label: Label
-var enemy_health_label: Label
-var start_combat_button: Button
-var combat_ui_container: VBoxContainer
-var return_to_shop_button: Button
+# UI Manager reference
+@onready var ui_manager = $MainLayout
 
-# Combat Screen State Management
-enum GameMode { SHOP, COMBAT }
-var current_mode: GameMode = GameMode.SHOP
-var current_enemy_board_name: String = ""
+# Manager instances
+var shop_manager: ShopManagerScript
+var combat_manager: CombatManagerScript
 
-# Combat Result Toggle System
-var combat_view_toggle_button: Button
-var current_combat_view: String = "log"  # "log" or "result"
-var final_player_minions: Array = []     # Surviving CombatMinions
-var final_enemy_minions: Array = []      # Surviving CombatMinions  
-var original_player_count: int = 0       # For dead minion slots
-var original_enemy_count: int = 0        # For dead minion slots
+# Constants are now in GameState singleton
 
-# Constants
-const GLOBAL_GOLD_MAX = 255
+# Note: Hand/board size tracking and UI constants moved to UIManager
 
-# Tavern tier upgrade system
-const TAVERN_UPGRADE_BASE_COSTS = {
-    2: 5,   # Tier 1 → 2: base cost 5
-    3: 7,   # Tier 2 → 3: base cost 7
-    4: 8,   # Tier 3 → 4: base cost 8
-    5: 9,   # Tier 4 → 5: base cost 9
-    6: 11   # Tier 5 → 6: base cost 11
-}
+func _ready():
+    # Note: UI setup is now handled by UIManager
+    # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
+    GameState.game_over.connect(_on_game_over)
+    
+    # Initialize ShopManager
+    shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
+    
+    # Initialize CombatManager with ShopManager reference for auto-refresh
+    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, shop_manager)
+    
+    # Connect UI signals to game logic
+    ui_manager.forward_card_clicked.connect(_on_card_clicked)
+    ui_manager.forward_card_drag_started.connect(_on_card_drag_started)
+    
+    # Initialize game systems
+    shop_manager.refresh_shop()
 
-# Hand/board size tracking
-var max_hand_size: int = 10
-var max_board_size: int = 7
-
-# UI font sizes
-const UI_FONT_SIZE_LARGE = 24    # Main labels, important text
-const UI_FONT_SIZE_MEDIUM = 20   # Secondary labels, buttons
-const UI_FONT_SIZE_SMALL = 16    # Supporting text
-
-
+# === SIGNAL HANDLERS FOR GAMESTATE ===
+func _on_game_over(winner: String):
+    print("Game Over! Winner: ", winner)
 
 func _on_card_clicked(card_node):
-    var card_name = card_node.get_node("VBoxContainer/CardName").text
-    print("A card was clicked: ", card_name)
-    
-    # Check if this card is in the hand (only hand cards should be clickable for casting)
-    var is_in_hand = false
-    for hand_card in $MainLayout/PlayerHand.get_children():
-        if hand_card == card_node:
-            is_in_hand = true
-            break
-    
-    if not is_in_hand:
-        print("Card not in hand - ignoring click")
+    # Don't show card details if we're in combat mode
+    if GameState.current_mode == GameState.GameMode.COMBAT:
         return
+        
+    var shop_area = $MainLayout/ShopArea
+    var card_id = card_node.name  # Assuming card_node.name is the card ID
     
-    # Get card data to check if it's a spell
-    var card_data = _find_card_data_by_name(card_name)
-    if card_data.is_empty():
-        print("Error: Could not find card data for ", card_name)
-        return
-    
-    # Handle spell casting
-    if card_data.get("type", "") == "spell":
-        _cast_spell(card_node, card_data)
-    else:
-        print(card_name, " is a minion - drag to board to play")
+    # Check if this is a shop card and if we can afford it
+    if card_node.get_parent() == shop_area:
+        var card_data = CardDatabase.get_card_data(card_id)
+        var cost = card_data.get("cost", 3)
+        
+        if GameState.can_afford(cost):
+            print("Can purchase ", card_id, " for ", cost, " gold")
+        else:
+            print("Cannot afford ", card_id, " - costs ", cost, " gold, have ", GameState.current_gold)
+
+# Note: UI update functions moved to UIManager
+
+# Convenience functions that delegate to UIManager
+func get_hand_size() -> int:
+    return ui_manager.get_hand_size()
+
+func get_board_size() -> int:
+    return ui_manager.get_board_size()
+
+func is_hand_full() -> bool:
+    return ui_manager.is_hand_full()
+
+func is_board_full() -> bool:
+    return ui_manager.is_board_full()
 
 func update_hand_count():
-    var hand_size = get_hand_size()
-    $MainLayout/PlayerHand/PlayerHandLabel.text = "Your Hand (" + str(hand_size) + "/" + str(max_hand_size) + ")"
+    ui_manager.update_hand_display()
 
 func update_board_count():
-    var board_size = get_board_size()
-    $MainLayout/PlayerBoard/PlayerBoardLabel.text = "Your Board (" + str(board_size) + "/" + str(max_board_size) + ")"
+    ui_manager.update_board_display()
 
-func apply_ui_font_sizing() -> void:
-    """Apply consistent font sizing to all UI elements"""
-    # Top UI labels
-    $MainLayout/TopUI/GoldLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/TopUI/ShopTierLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    
-    # Top UI buttons
-    $MainLayout/TopUI/RefreshShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    $MainLayout/TopUI/UpgradeShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    $MainLayout/TopUI/EndTurnButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    
-    # Area labels
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/PlayerBoard/PlayerBoardLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/PlayerHand/PlayerHandLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+# Note: Most shop functions moved to ShopManager
 
-func apply_font_to_label(label: Label, size: int) -> void:
-    """Helper function to apply font size to a label"""
-    if label:
-        label.add_theme_font_size_override("font_size", size)
-
-func apply_font_to_button(button: Button, size: int) -> void:
-    """Helper function to apply font size to a button"""  
-    if button:
-        button.add_theme_font_size_override("font_size", size)
-
-func initialize_card_pool():
-    """Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
-    card_pool.clear()
-    
-    # Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
-    var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
-    
-    # Initialize pool for each shop-available card based on its tier
-    for card_id in CardDatabase.get_all_shop_available_card_ids():
-        var card_data = CardDatabase.get_card_data(card_id)
-        var tier = card_data.get("tier", 1)
-        var copy_count = copies_by_tier.get(tier, 1)
-        card_pool[card_id] = copy_count
-    
-    print("Card pool initialized (shop cards only): ", card_pool)
-
-func get_shop_size_for_tier(tier: int) -> int:
-    """Get number of cards shown in shop for given tier"""
-    match tier:
-        1: return 3
-        2, 3: return 4  
-        4, 5: return 5
-        6: return 6
-        _: return 3  # Default fallback
-
-func get_random_card_for_shop(max_tier: int) -> String:
-    """Get a random card ID from max_tier and below, weighted by copies in pool"""
-    var weighted_cards = []
-    
-    # Create weighted selection based on pool copies (more copies = higher chance)
-    for card_id in card_pool.keys():
-        var copies_available = card_pool[card_id]
-        if copies_available > 0:  # Has remaining copies
-            var card_data = CardDatabase.get_card_data(card_id)
-            var card_tier = card_data.get("tier", 1)
-            
-            # Include cards from max_tier and below that are shop-available
-            if card_tier <= max_tier and card_data.get("shop_available", true):
-                # Add this card_id multiple times based on copies available
-                for i in range(copies_available):
-                    weighted_cards.append(card_id)
-    
-    if weighted_cards.is_empty():
-        print("Warning: No available shop cards for tier ", max_tier, " and below")
-        return ""
-    
-    # Return random card from weighted options
-    return weighted_cards[randi() % weighted_cards.size()]
-
-func refresh_shop():
-    """Clear shop and populate with random cards from current tier"""
-    # Clear existing shop cards (but keep the ShopAreaLabel)
-    for child in $MainLayout/ShopArea.get_children():
-        if child.name != "ShopAreaLabel":
-            child.queue_free()
-    
-    var shop_size = get_shop_size_for_tier(shop_tier)
-    print("Refreshing shop (tier ", shop_tier, ") with ", shop_size, " cards")
-    
-    # Add new random cards to shop
-    for i in range(shop_size):
-        var card_id = get_random_card_for_shop(shop_tier)
-        if card_id != "":
-            add_card_to_shop(card_id)
-
-func create_card_instance(card_data: Dictionary, card_id: String = ""):
-    """Create the appropriate card instance based on card type"""
-    var new_card = CardScene.instantiate()
-    
-    # Add card_id to card_data so it's preserved
-    var enhanced_card_data = card_data.duplicate()
-    if card_id != "":
-        enhanced_card_data["id"] = card_id
-    
-    # If it's a minion, swap to MinionCard script
-    if enhanced_card_data.get("type", "") == "minion":
-        # Load and apply the MinionCard script dynamically
-        var minion_script = load("res://minion_card.gd")
-        new_card.set_script(minion_script)
-    
-    new_card.setup_card_data(enhanced_card_data)
-    return new_card
-
-func add_card_to_shop(card_id: String):
-    """Add a card to the shop area"""
-    var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(card_data, card_id)
-    
-    # Connect drag handler for shop cards (drag-to-purchase)
-    new_card.drag_started.connect(_on_card_drag_started)
-    
-    # Store card_id for purchase logic
-    new_card.set_meta("card_id", card_id)
-    
-    $MainLayout/ShopArea.add_child(new_card)
-
-
+# Note: Card creation now handled by CardFactory autoload singleton
 
 func add_card_to_hand_direct(card_id: String):
-    """Add a card directly to hand (used by purchase system)"""
+    """Add a card directly to hand (delegated to ShopManager for purchase logic)"""
+    # For purchases, delegate to ShopManager; for other uses, create card directly
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(card_data, card_id)
+    var new_card = CardFactory.create_card(card_data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -248,7 +109,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         print("Cannot add generated card - card not found: ", card_id)
         return false
     
-    var new_card = create_card_instance(card_data, card_id)
+    var new_card = CardFactory.create_card(card_data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
@@ -261,147 +122,51 @@ func add_generated_card_to_hand(card_id: String) -> bool:
 
 
 
-func calculate_base_gold_for_turn(turn: int) -> int:
-    """Calculate base gold for a given turn (3 on turn 1, +1 per turn up to 10)"""
-    if turn <= 1:
-        return 3
-    elif turn <= 8:
-        return 2 + turn  # Turn 2=4 gold, turn 3=5 gold, ..., turn 8=10 gold
-    else:
-        return 10  # Maximum base gold of 10 from turn 8 onwards
-
-func start_new_turn():
-    """Advance to the next turn and refresh gold"""
-    current_turn += 1
-    
-    # Update base gold from turn progression (but don't decrease it)
-    var new_base_gold = calculate_base_gold_for_turn(current_turn)
-    player_base_gold = max(player_base_gold, new_base_gold)
-    
-    # Refresh current gold (base + any bonus, capped at global max)
-    current_gold = min(player_base_gold + bonus_gold, GLOBAL_GOLD_MAX)
-    bonus_gold = 0  # Reset bonus after applying it
-    
-    # Decrease tavern upgrade cost by 1 each turn (minimum 0)
-    current_tavern_upgrade_cost = max(current_tavern_upgrade_cost - 1, 0)
-    
-    print("Turn ", current_turn, " started - Base Gold: ", player_base_gold, ", Current Gold: ", current_gold)
-    print("Tavern upgrade cost decreased to: ", current_tavern_upgrade_cost)
-    update_ui_displays()
-    
-    # Refresh shop for new turn (free)
-    refresh_shop()
+# calculate_base_gold_for_turn() and start_new_turn() now in GameState singleton
 
 func update_ui_displays():
-    """Update all UI elements with current game state"""
-    var gold_text = "Gold: " + str(current_gold) + "/" + str(player_base_gold)
-    if bonus_gold > 0:
-        gold_text += " (+" + str(bonus_gold) + ")"
-    $MainLayout/TopUI/GoldLabel.text = gold_text
-    $MainLayout/TopUI/ShopTierLabel.text = "Shop Tier: " + str(shop_tier)
+    """Update all UI elements to reflect current game state"""
+    # Update turn and gold displays (with null checks)
+    var turn_label = get_node_or_null("MainLayout/TopUI/TurnLabel")
+    if turn_label:
+        turn_label.text = "Turn: " + str(GameState.current_turn)
+    
+    var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
+    if GameState.bonus_gold > 0:
+        gold_text += " (+" + str(GameState.bonus_gold) + ")"
+    
+    var gold_label = get_node_or_null("MainLayout/TopUI/GoldLabel")
+    if gold_label:
+        gold_label.text = gold_text
+        
+    var shop_tier_label = get_node_or_null("MainLayout/TopUI/ShopTierLabel")
+    if shop_tier_label:
+        shop_tier_label.text = "Shop Tier: " + str(GameState.shop_tier)
     
     # Update upgrade button text with current cost
-    if can_upgrade_tavern():
-        var upgrade_cost = calculate_tavern_upgrade_cost()
-        $MainLayout/TopUI/UpgradeShopButton.text = "Upgrade (" + str(upgrade_cost) + "g)"
-        $MainLayout/TopUI/UpgradeShopButton.disabled = not can_afford(upgrade_cost)
-    else:
-        $MainLayout/TopUI/UpgradeShopButton.text = "Max Tier"
-        $MainLayout/TopUI/UpgradeShopButton.disabled = true
-
-func spend_gold(amount: int) -> bool:
-    """Attempt to spend gold. Returns true if successful, false if insufficient gold"""
-    if current_gold >= amount:
-        current_gold -= amount
-        update_ui_displays()
-        return true
-    else:
-        print("Insufficient gold: need ", amount, ", have ", current_gold)
-        return false
-
-func can_afford(cost: int) -> bool:
-    """Check if player can afford a given cost"""
-    return current_gold >= cost
-
-func increase_base_gold(amount: int):
-    """Permanently increase player's base gold income"""
-    player_base_gold = min(player_base_gold + amount, GLOBAL_GOLD_MAX)
-    print("Base gold increased by ", amount, " to ", player_base_gold)
-    update_ui_displays()
-
-func add_bonus_gold(amount: int):
-    """Add temporary bonus gold for next turn only"""
-    bonus_gold = min(bonus_gold + amount, GLOBAL_GOLD_MAX - player_base_gold)
-    print("Bonus gold added: ", amount, " (total bonus: ", bonus_gold, ")")
-    update_ui_displays()
-
-func gain_gold(amount: int):
-    """Immediately gain current gold (within global limits)"""
-    current_gold = min(current_gold + amount, GLOBAL_GOLD_MAX)
-    print("Gained ", amount, " gold (current: ", current_gold, ")")
-    update_ui_displays()
-
-func calculate_tavern_upgrade_cost() -> int:
-    """Get current cost to upgrade tavern tier"""
-    if not can_upgrade_tavern():
-        return -1  # Cannot upgrade past tier 6
-    
-    return current_tavern_upgrade_cost
-
-func can_upgrade_tavern() -> bool:
-    """Check if tavern can be upgraded (not at max tier)"""
-    return shop_tier < 6
-
-func upgrade_tavern_tier() -> bool:
-    """Attempt to upgrade tavern tier. Returns true if successful."""
-    if not can_upgrade_tavern():
-        print("Cannot upgrade - already at max tier (", shop_tier, ")")
-        return false
-    
-    var upgrade_cost = calculate_tavern_upgrade_cost()
-    
-    if not can_afford(upgrade_cost):
-        print("Cannot afford tavern upgrade - need ", upgrade_cost, " gold, have ", current_gold)
-        return false
-    
-    if spend_gold(upgrade_cost):
-        shop_tier += 1
-        
-        # Reset tavern upgrade cost to base cost for next tier
-        var next_tier_after_upgrade = shop_tier + 1
-        if next_tier_after_upgrade <= 6:
-            current_tavern_upgrade_cost = TAVERN_UPGRADE_BASE_COSTS.get(next_tier_after_upgrade, 0)
-            print("Upgraded tavern to tier ", shop_tier, " for ", upgrade_cost, " gold. Next upgrade costs ", current_tavern_upgrade_cost)
+    var upgrade_button = get_node_or_null("MainLayout/TopUI/UpgradeShopButton")
+    if upgrade_button:
+        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+        if upgrade_cost > 0:
+            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
         else:
-            print("Upgraded tavern to tier ", shop_tier, " for ", upgrade_cost, " gold. Max tier reached!")
-        
-        # Refresh shop with new tier
-        refresh_shop()
-        return true
+            upgrade_button.text = "Max Tier"
     
-    return false
+    # Update hand and board counts
+    update_hand_count()
+    update_board_count()
 
-func get_hand_size() -> int:
-    """Get current number of cards in hand"""
-    return $MainLayout/PlayerHand.get_children().size() - 1  # Subtract label
+# All gold and tavern management functions moved to GameState singleton:
+# - spend_gold(), can_afford(), increase_base_gold(), add_bonus_gold(), gain_gold()
+# - calculate_tavern_upgrade_cost(), can_upgrade_tavern(), upgrade_tavern_tier()
 
-func get_board_size() -> int:
-    """Get current number of minions on board"""
-    return $MainLayout/PlayerBoard.get_children().size() - 1  # Subtract label
-
-func is_hand_full() -> bool:
-    """Check if hand is at maximum capacity"""
-    return get_hand_size() >= max_hand_size
-
-func is_board_full() -> bool:
-    """Check if board is at maximum capacity"""
-    return get_board_size() >= max_board_size
+# Note: get_hand_size(), get_board_size(), is_hand_full(), is_board_full() moved to UIManager delegation functions above
     
 @rpc("any_peer", "call_local")
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(data, card_id)
+    var new_card = CardFactory.create_card(data, card_id)
     
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
@@ -513,12 +278,14 @@ func _on_card_dropped(card):
         ["board", "board"]:
             _handle_board_reorder_drop(card)
         ["board", "hand"]:
-            _handle_board_to_hand_drop(card)
+            _handle_board_to_hand_drop(card)  # Now handles this as invalid
+        ["board", "shop"]:
+            _handle_board_to_shop_drop(card)  # Sell minion for gold
         ["shop", "board"], ["shop", "shop"], ["shop", "invalid"]:
             _handle_invalid_shop_drop(card)
         ["hand", "shop"], ["hand", "invalid"]:
             _handle_invalid_hand_drop(card)
-        ["board", "shop"], ["board", "invalid"]:
+        ["board", "invalid"]:
             _handle_invalid_board_drop(card)
         _:
             print("Unhandled drop scenario: ", origin_zone, " -> ", drop_zone)
@@ -532,43 +299,14 @@ func _on_card_dropped(card):
 
 func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
-    var card_id = card.get_meta("card_id", "")
-    if card_id == "":
-        print("Error: Shop card missing card_id metadata")
-        _return_card_to_shop(card)
-        return
+    # Delegate to ShopManager for purchase logic
+    var success = shop_manager.handle_shop_card_purchase_by_drag(card)
     
-    var card_data = CardDatabase.get_card_data(card_id)
-    var cost = card_data.get("cost", 3)
-    
-    print("Attempting to purchase ", card_data.get("name", "Unknown"), " for ", cost, " gold via drag")
-    
-    # Check purchase validation (reuse existing logic)
-    if not can_afford(cost):
-        print("Cannot afford card - need ", cost, " gold, have ", current_gold)
-        _return_card_to_shop(card)
-        return
-    
-    if is_hand_full():
-        print("Cannot purchase - hand is full (", get_hand_size(), "/", max_hand_size, ")")
-        _return_card_to_shop(card)
-        return
-    
-    if card_pool.get(card_id, 0) <= 0:
-        print("Card no longer available in pool")
-        _return_card_to_shop(card)
-        return
-    
-    # Execute purchase
-    if spend_gold(cost):
-        # Remove from pool
-        card_pool[card_id] -= 1
-        
-        # Convert shop card to hand card
-        _convert_shop_card_to_hand_card(card, card_id)
-        
-        print("Purchased ", card_data.get("name", "Unknown"), " via drag - Remaining in pool: ", card_pool[card_id])
+    if success:
+        # Purchase succeeded - clean up the dragged card node
+        card.queue_free()
     else:
+        # Return card to shop if purchase failed
         _return_card_to_shop(card)
 
 func _handle_hand_reorder_drop(card):
@@ -611,7 +349,7 @@ func _handle_hand_to_board_drop(card):
     
     # Check if board is full
     if is_board_full():
-        print("Cannot play minion - board is full (", get_board_size(), "/", max_board_size, ")")
+        print("Cannot play minion - board is full (", get_board_size(), "/", ui_manager.max_board_size, ")")
         _return_card_to_hand(card)
         return
     
@@ -654,19 +392,42 @@ func _handle_board_reorder_drop(card):
         $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
-    """Handle returning a minion from board to hand"""
-    # Check if hand has space
-    if is_hand_full():
-        print("Cannot return minion to hand - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+    """Handle invalid attempt to return a minion from board to hand"""
+    print("Cannot return minions from board to hand - this is not allowed")
+    _return_card_to_board(card)
+
+func _handle_board_to_shop_drop(card):
+    """Handle selling a minion by dragging from board to shop"""
+    # Only allow selling during shop phase
+    if GameState.current_mode != GameState.GameMode.SHOP:
+        print("Cannot sell minions during combat phase")
         _return_card_to_board(card)
         return
     
-    # Move minion back to hand
-    card.reparent($MainLayout/PlayerHand)
+    # Get card info for feedback
+    var card_name = card.get_node("VBoxContainer/CardName").text
+    var card_data = _find_card_data_by_name(card_name)
     
-    update_hand_count()
+    if card_data.is_empty():
+        print("Error: Could not find card data for ", card_name)
+        _return_card_to_board(card)
+        return
+    
+    # Only minions can be sold (should always be true since it's from board)
+    if card_data.get("type", "") != "minion":
+        print("Error: Non-minion on board - cannot sell")
+        _return_card_to_board(card)
+        return
+    
+    # Execute the sale
+    GameState.gain_gold(1)
+    card.queue_free()  # Remove the minion card
+    
+    # Update displays
     update_board_count()
-    print("Returned minion to hand")
+    update_ui_displays()  # Update gold display
+    
+    print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -698,17 +459,7 @@ func _return_card_to_board(card):
     """Return a card to the board area"""
     card.reparent($MainLayout/PlayerBoard)
 
-func _convert_shop_card_to_hand_card(shop_card, card_id: String):
-    """Convert a shop card into a hand card with proper connections"""
-    # Remove the shop card from the shop area first
-    var shop_position = shop_card.get_index()
-    shop_card.queue_free()
-    
-    # Create a new hand card with the same data
-    add_card_to_hand_direct(card_id)
-    
-    # Update counts
-    update_hand_count()
+# Note: _convert_shop_card_to_hand_card moved to ShopManager
 
 func _find_card_data_by_name(card_name: String) -> Dictionary:
     """Find card data by card name from the database"""
@@ -788,11 +539,14 @@ func _update_drop_zone_feedback():
             # Valid minion reorder zone
             _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
         ["board", "hand"]:
-            # Valid return to hand zone
-            if not is_hand_full():
-                _highlight_container($MainLayout/PlayerHand, Color.MAGENTA)
+            # Invalid - minions cannot be returned to hand from board
+            _highlight_container($MainLayout/PlayerHand, Color.RED)
+        ["board", "shop"]:
+            # Valid selling zone (only during shop phase)
+            if GameState.current_mode == GameState.GameMode.SHOP:
+                _highlight_container($MainLayout/ShopArea, Color.YELLOW)
             else:
-                _highlight_container($MainLayout/PlayerHand, Color.RED)
+                _highlight_container($MainLayout/ShopArea, Color.RED)
         ["shop", "board"], ["shop", "shop"]:
             # Invalid zones for shop cards
             _highlight_invalid_zone(current_drop_zone)
@@ -836,7 +590,7 @@ func _cast_spell(spell_card, card_data: Dictionary):
     match card_data.get("name", ""):
         "The Coin":
             # Gain 1 gold immediately
-            gain_gold(1)
+            GameState.gain_gold(1)
             print("Gained 1 gold from The Coin")
         _:
             print("Spell effect not implemented for: ", spell_name)
@@ -847,631 +601,82 @@ func _cast_spell(spell_card, card_data: Dictionary):
     
     print("Spell ", spell_name, " cast and removed from hand")
 
-# Player Health System Functions (Phase 2A.4)
-
-func take_damage(damage: int, is_player: bool = true) -> void:
-    """Apply damage to player or enemy and check for game over"""
-    if is_player:
-        player_health = max(0, player_health - damage)
-        player_health_changed.emit(player_health)
-        print("Player took %d damage, health now: %d" % [damage, player_health])
-        if player_health <= 0:
-            game_over.emit("enemy")
-            print("GAME OVER - Enemy wins!")
-    else:
-        enemy_health = max(0, enemy_health - damage)
-        enemy_health_changed.emit(enemy_health)
-        print("Enemy took %d damage, health now: %d" % [damage, enemy_health])
-        if enemy_health <= 0:
-            game_over.emit("player")
-            print("GAME OVER - Player wins!")
-
-func get_player_health() -> int:
-    """Get current player health"""
-    return player_health
-
-func get_enemy_health() -> int:
-    """Get current enemy health"""
-    return enemy_health
-
-func reset_health() -> void:
-    """Reset both players to starting health (for testing)"""
-    player_health = 25
-    enemy_health = 25
-    player_health_changed.emit(player_health)
-    enemy_health_changed.emit(enemy_health)
-    print("Health reset - Player: %d, Enemy: %d" % [player_health, enemy_health])
-
-func set_enemy_health(health: int) -> void:
-    """Set enemy health (useful for testing different enemy board healths)"""
-    enemy_health = max(0, health)
-    enemy_health_changed.emit(enemy_health)
-    print("Enemy health set to: %d" % enemy_health)
+# All health management functions moved to GameState singleton:
+# - take_damage(), get_player_health(), get_enemy_health(), reset_health(), set_enemy_health()
 
 # Combat UI Integration Functions (Phase 2B.2)
 
-func create_combat_ui() -> void:
-    """Create combat UI elements programmatically"""
-    # Create main combat UI container
-    combat_ui_container = VBoxContainer.new()
-    combat_ui_container.name = "CombatUI"
-    
-    # Add to the main layout (position it near the top UI)
-    $MainLayout.add_child(combat_ui_container)
-    $MainLayout.move_child(combat_ui_container, 1)  # Place after TopUI
-    
-    # Create health display container
-    var health_container = HBoxContainer.new()
-    health_container.name = "HealthContainer"
-    
-    # Player health label
-    player_health_label = Label.new()
-    player_health_label.name = "PlayerHealthLabel"
-    player_health_label.text = "Player Health: %d" % player_health
-    player_health_label.add_theme_color_override("font_color", Color.GREEN)
-    apply_font_to_label(player_health_label, UI_FONT_SIZE_LARGE)
-    
-    # Enemy health label  
-    enemy_health_label = Label.new()
-    enemy_health_label.name = "EnemyHealthLabel"
-    enemy_health_label.text = "Enemy Health: %d" % enemy_health
-    enemy_health_label.add_theme_color_override("font_color", Color.RED)
-    apply_font_to_label(enemy_health_label, UI_FONT_SIZE_LARGE)
-    
-    health_container.add_child(player_health_label)
-    health_container.add_child(enemy_health_label)
-    
-    # Create enemy board selection container
-    var enemy_selection_container = HBoxContainer.new()
-    enemy_selection_container.name = "EnemySelectionContainer"
-    
-    var enemy_label = Label.new()
-    enemy_label.text = "Enemy Board: "
-    apply_font_to_label(enemy_label, UI_FONT_SIZE_MEDIUM)
-    
-    enemy_board_selector = OptionButton.new()
-    enemy_board_selector.name = "EnemyBoardSelector"
-    apply_font_to_button(enemy_board_selector, UI_FONT_SIZE_MEDIUM)
-    
-    enemy_selection_container.add_child(enemy_label)
-    enemy_selection_container.add_child(enemy_board_selector)
-    
-    # Create start combat button
-    start_combat_button = Button.new()
-    start_combat_button.name = "StartCombatButton"
-    start_combat_button.text = "Start Combat"
-    apply_font_to_button(start_combat_button, UI_FONT_SIZE_MEDIUM)
-    
-    # Create combat log display
-    combat_log_display = RichTextLabel.new()
-    combat_log_display.name = "CombatLogDisplay"
-    combat_log_display.custom_minimum_size = Vector2(400, 200)
-    combat_log_display.bbcode_enabled = true
-    combat_log_display.scroll_following = true
-    combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_SMALL)
-    combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_MEDIUM)
-    combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
-    
-    # Add all elements to combat UI container
-    combat_ui_container.add_child(health_container)
-    combat_ui_container.add_child(enemy_selection_container)
-    combat_ui_container.add_child(start_combat_button)
-    combat_ui_container.add_child(combat_log_display)
-    
-    print("Combat UI created successfully")
+# Note: Combat UI functions moved to UIManager
 
-func populate_enemy_board_selector() -> void:
-    """Populate enemy board dropdown with available options"""
-    if not enemy_board_selector:
-        return
-        
-    enemy_board_selector.clear()
-    
-    # Add enemy board options
-    for board_name in EnemyBoards.get_enemy_board_names():
-        var board_data = EnemyBoards.create_enemy_board(board_name)
-        enemy_board_selector.add_item(board_data.get("name", board_name))
-        
-    print("Enemy board selector populated with %d options" % enemy_board_selector.get_item_count())
+# Combat functions moved to CombatManager
 
-func connect_combat_ui_signals() -> void:
-    """Connect combat UI element signals"""
-    if start_combat_button:
-        start_combat_button.pressed.connect(_on_start_combat_button_pressed)
-        
-    if enemy_board_selector:
-        enemy_board_selector.item_selected.connect(_on_enemy_board_selected)
-        
-    print("Combat UI signals connected")
-
-func update_health_displays() -> void:
-    """Update health display labels"""
-    if player_health_label:
-        player_health_label.text = "Player Health: %d" % player_health
-        
-    if enemy_health_label:
-        enemy_health_label.text = "Enemy Health: %d" % enemy_health
-
-# Combat Screen Mode Management
-
-func switch_to_combat_mode(enemy_board_name: String) -> void:
-    """Switch to combat screen view"""
-    current_mode = GameMode.COMBAT
-    current_enemy_board_name = enemy_board_name
-    
-    # Hide shop elements
-    _hide_shop_elements()
-    
-    # Show enemy board in shop area
-    _display_enemy_board_in_shop_area(enemy_board_name)
-    
-    # Update combat UI for combat mode
-    _update_combat_ui_for_combat_mode()
-    
-    # Hide/minimize hand area
-    _minimize_hand_area()
-    
-    print("Switched to combat mode vs %s" % enemy_board_name)
-
-func switch_to_shop_mode() -> void:
-    """Switch back to shop/tavern view"""
-    current_mode = GameMode.SHOP
-    current_enemy_board_name = ""
-    
-    # Restore original shop area label
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Shop"
-    $MainLayout/ShopArea/ShopAreaLabel.remove_theme_color_override("font_color")
-    
-    # Show shop elements
-    _show_shop_elements()
-    
-    # Clear enemy board from shop area
-    _clear_enemy_board_from_shop_area()
-    
-    # Restore original player board (in case we were in result view)
-    _restore_original_player_board()
-    
-    # Reset battle selection display (clear previous combat log)
-    if combat_log_display:
-        combat_log_display.clear()
-        combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
-    
-    # Update combat UI for shop mode
-    _update_combat_ui_for_shop_mode()
-    
-    # Show hand area normally
-    _show_hand_area()
-    
-    print("Switched to shop mode")
-
-func _hide_shop_elements() -> void:
-    """Hide shop cards and shop-related buttons"""
-    # Hide shop cards (but keep the ShopAreaLabel visible)
-    for child in $MainLayout/ShopArea.get_children():
-        if child.name != "ShopAreaLabel":
-            child.visible = false
-    
-    # Hide shop-related buttons
-    $MainLayout/TopUI/RefreshShopButton.visible = false
-    $MainLayout/TopUI/UpgradeShopButton.visible = false
-
-func _show_shop_elements() -> void:
-    """Show shop cards and shop-related buttons"""
-    # Show shop cards (label should already be visible)
-    for child in $MainLayout/ShopArea.get_children():
-        child.visible = true
-    
-    # Show shop-related buttons
-    $MainLayout/TopUI/RefreshShopButton.visible = true
-    $MainLayout/TopUI/UpgradeShopButton.visible = true
-
-func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
-    """Create and display enemy minions in the shop area"""
-    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
-    if enemy_board_data.is_empty():
-        print("Failed to load enemy board: %s" % enemy_board_name)
-        return
-    
-    # Update the existing shop area label to show enemy board
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Board: %s" % enemy_board_data.get("name", enemy_board_name)
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Create visual representations of enemy minions
-    for i in range(enemy_board_data.get("minions", []).size()):
-        var enemy_minion_data = enemy_board_data.minions[i]
-        var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
-        
-        # Apply any buffs to the card data for display
-        for buff_data in enemy_minion_data.get("buffs", []):
-            if buff_data.type == "stat_modification":
-                card_data.attack += buff_data.get("attack_bonus", 0)
-                card_data.health += buff_data.get("health_bonus", 0)
-        
-        # Create enemy card display
-        var enemy_card = create_card_instance(card_data, enemy_minion_data.card_id)
-        enemy_card.name = "EnemyMinion_%d" % i
-        
-        # Make enemy cards non-interactive
-        enemy_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-        
-        # Add visual indication this is an enemy
-        enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
-        
-        $MainLayout/ShopArea.add_child(enemy_card)
-
-func _clear_enemy_board_from_shop_area() -> void:
-    """Remove enemy minions from shop area"""
-    var children_to_remove = []
-    for child in $MainLayout/ShopArea.get_children():
-        if (child.name.begins_with("EnemyMinion_") or 
-            child.name.begins_with("EnemyResult_") or
-            child.name.begins_with("EnemyDead_")) and child.name != "ShopAreaLabel":
-            children_to_remove.append(child)
-    
-    for child in children_to_remove:
-        child.queue_free()
-
-func _minimize_hand_area() -> void:
-    """Minimize hand area during combat"""
-    $MainLayout/PlayerHand.visible = false
-
-func _show_hand_area() -> void:
-    """Show hand area normally during shop phase"""
-    $MainLayout/PlayerHand.visible = true
+# Combat helper functions moved to CombatManager
 
 func _update_combat_ui_for_combat_mode() -> void:
     """Update combat UI elements for combat mode"""
-    if start_combat_button:
-        start_combat_button.visible = false
+    if ui_manager.start_combat_button:
+        ui_manager.start_combat_button.visible = false
     
-    if enemy_board_selector:
-        enemy_board_selector.get_parent().visible = false
+    if ui_manager.enemy_board_selector:
+        ui_manager.enemy_board_selector.get_parent().visible = false
     
     # Create return to shop button if it doesn't exist
-    if not return_to_shop_button:
-        return_to_shop_button = Button.new()
-        return_to_shop_button.name = "ReturnToShopButton"
-        return_to_shop_button.text = "Return to Shop"
-        apply_font_to_button(return_to_shop_button, UI_FONT_SIZE_MEDIUM)
-        combat_ui_container.add_child(return_to_shop_button)
-        return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
+    if not ui_manager.return_to_shop_button:
+        ui_manager.return_to_shop_button = Button.new()
+        ui_manager.return_to_shop_button.name = "ReturnToShopButton"
+        ui_manager.return_to_shop_button.text = "Return to Shop"
+        ui_manager.apply_font_to_button(ui_manager.return_to_shop_button, ui_manager.UI_FONT_SIZE_MEDIUM)
+        ui_manager.combat_ui_container.add_child(ui_manager.return_to_shop_button)
+        ui_manager.return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
     
     # Hide toggle button (no longer needed)
-    if combat_view_toggle_button:
-        combat_view_toggle_button.visible = false
+    if ui_manager.combat_view_toggle_button:
+        ui_manager.combat_view_toggle_button.visible = false
     
-    return_to_shop_button.visible = true
+    ui_manager.return_to_shop_button.visible = true
     
-    # Make combat log prominent and always visible
-    if combat_log_display:
-        combat_log_display.custom_minimum_size = Vector2(600, 300)
-        combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_MEDIUM)
-        combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_LARGE)
-        combat_log_display.visible = true
+    # Make combat UI and log prominent and always visible
+    if ui_manager.combat_ui_container:
+        ui_manager.combat_ui_container.visible = true
+        
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.custom_minimum_size = Vector2(600, 300)
+        ui_manager.combat_log_display.add_theme_font_size_override("normal_font_size", ui_manager.UI_FONT_SIZE_MEDIUM)
+        ui_manager.combat_log_display.add_theme_font_size_override("bold_font_size", ui_manager.UI_FONT_SIZE_LARGE)
+        ui_manager.combat_log_display.visible = true
 
 func _update_combat_ui_for_shop_mode() -> void:
     """Update combat UI elements for shop mode"""
-    if start_combat_button:
-        start_combat_button.visible = true
+    if ui_manager.start_combat_button:
+        ui_manager.start_combat_button.visible = true
     
-    if enemy_board_selector:
-        enemy_board_selector.get_parent().visible = true
+    if ui_manager.enemy_board_selector:
+        ui_manager.enemy_board_selector.get_parent().visible = true
     
-    if combat_view_toggle_button:
-        combat_view_toggle_button.visible = false
+    if ui_manager.combat_view_toggle_button:
+        ui_manager.combat_view_toggle_button.visible = false
     
-    if return_to_shop_button:
-        return_to_shop_button.visible = false
+    if ui_manager.return_to_shop_button:
+        ui_manager.return_to_shop_button.visible = false
     
-    # Hide combat log during shop mode and make it smaller
-    if combat_log_display:
-        combat_log_display.custom_minimum_size = Vector2(400, 200)
-        combat_log_display.visible = true  # Keep visible for "Next Battle" display
-
-# Combat Result Toggle View Functions
-
-func _show_combat_result_view() -> void:
-    """Show the final combat result with surviving minions and tombstones"""
-    # Hide combat log
-    if combat_log_display:
-        combat_log_display.visible = false
-    
-    # Clear current enemy board display
-    _clear_enemy_board_from_shop_area()
-    
-    # Show final board states
-    _display_final_player_board()
-    _display_final_enemy_board()
-    
-    print("Showing combat result view")
-
-func _show_combat_log_view() -> void:
-    """Show the combat log view (default)"""
-    # Show combat log
-    if combat_log_display:
-        combat_log_display.visible = true
-    
-    # Clear result view
-    _clear_enemy_board_from_shop_area()
-    
-    # Restore original player board (in case we were in result view)
-    _restore_original_player_board()
-    
-    # Show original enemy board preview
-    _display_enemy_board_in_shop_area(current_enemy_board_name)
-    
-    print("Showing combat log view")
-
-func _show_combat_result_with_log() -> void:
-    """Show the combined combat result view with both log and final board states"""
-    # Combat log is already visible and populated
-    
-    # Clear current enemy board display
-    _clear_enemy_board_from_shop_area()
-    
-    # Show final board states
-    _display_final_player_board_with_dead()
-    _display_final_enemy_board_with_dead()
-    
-    print("Showing combined combat result with log")
-
-func _display_final_player_board_with_dead() -> void:
-    """Update player board to show final combat state with dead minions visible"""
-    # Hide original minions instead of removing them
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            child.visible = false
-    
-    # Show surviving minions with updated health
-    for i in range(original_player_count):
-        var surviving_minion = null
+    # Keep combat UI container visible but minimize combat log during shop mode
+    if ui_manager.combat_ui_container:
+        ui_manager.combat_ui_container.visible = true
         
-        # Find surviving minion at this position
-        for minion in final_player_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply health color (orange for damaged, red for dead)
-            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            # Mark as result card for cleanup
-            result_card.name = "PlayerResult_%d" % i
-            $MainLayout/PlayerBoard.add_child(result_card)
-        else:
-            # Create dead minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, true)
-            dead_minion.name = "PlayerDead_%d" % i
-            $MainLayout/PlayerBoard.add_child(dead_minion)
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.custom_minimum_size = Vector2(400, 200)
+        ui_manager.combat_log_display.visible = true  # Keep visible for "Next Battle" display
 
-func _display_final_enemy_board_with_dead() -> void:
-    """Display final enemy board state in shop area with dead minions visible"""
-    # Update the existing shop area label to show final state
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Show surviving enemy minions with dead minions
-    for i in range(original_enemy_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_enemy_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply enemy visual style and health color
-            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
-            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            result_card.name = "EnemyResult_%d" % i
-            $MainLayout/ShopArea.add_child(result_card)
-        else:
-            # Create dead enemy minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, false)
-            dead_minion.name = "EnemyDead_%d" % i
-            $MainLayout/ShopArea.add_child(dead_minion)
+# Combat display functions moved to CombatManager
 
-func _display_final_player_board() -> void:
-    """Update player board to show final combat state"""
-    # Hide original minions instead of removing them
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            child.visible = false
-    
-    # Show surviving minions with updated health
-    for i in range(original_player_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_player_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply health color (orange for damaged)
-            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            # Mark as result card for cleanup
-            result_card.name = "PlayerResult_%d" % i
-            $MainLayout/PlayerBoard.add_child(result_card)
-        else:
-            # Create dead minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, true)
-            dead_minion.name = "PlayerDead_%d" % i
-            $MainLayout/PlayerBoard.add_child(dead_minion)
+# _display_final_player_board_with_dead moved to CombatManager
 
-func _display_final_enemy_board() -> void:
-    """Display final enemy board state in shop area"""
-    # Update the existing shop area label to show final state
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Show surviving enemy minions with tombstones
-    for i in range(original_enemy_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_enemy_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply enemy visual style and health color
-            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
-            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            result_card.name = "EnemyResult_%d" % i
-            $MainLayout/ShopArea.add_child(result_card)
-        else:
-            # Create dead enemy minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, false)
-            dead_minion.name = "EnemyDead_%d" % i
-            $MainLayout/ShopArea.add_child(dead_minion)
+# _display_final_enemy_board_with_dead moved to CombatManager
 
-func _create_dead_minion_card(position: int, is_player: bool) -> Control:
-    """Create a card showing a dead minion (greyed out with red health)"""
-    # Find the original minion data at this position
-    var original_card_data = {}
-    var original_minions = []
-    
-    # Get original minion data from current board before combat
-    if is_player:
-        for child in $MainLayout/PlayerBoard.get_children():
-            if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
-                original_minions.append(child.card_data.duplicate())
-    else:
-        # For enemy, we need to reconstruct from the enemy board name
-        var enemy_board_data = EnemyBoards.create_enemy_board(current_enemy_board_name)
-        for enemy_minion_data in enemy_board_data.get("minions", []):
-            var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
-            # Apply buffs
-            for buff_data in enemy_minion_data.get("buffs", []):
-                if buff_data.type == "stat_modification":
-                    card_data.attack += buff_data.get("attack_bonus", 0)
-                    card_data.health += buff_data.get("health_bonus", 0)
-            original_minions.append(card_data)
-    
-    # Get card data for this position
-    if position < original_minions.size():
-        original_card_data = original_minions[position].duplicate()
-    else:
-        # Fallback if position is out of range
-        original_card_data = {
-            "name": "Unknown Minion",
-            "description": "",
-            "attack": 0,
-            "health": 0,
-            "id": "unknown"
-        }
-    
-    # Set health to 0 for dead minion display
-    original_card_data.health = 0
-    
-    var dead_card = create_card_instance(original_card_data, original_card_data.get("id", "unknown"))
-    
-    # Apply greyed-out visual style
-    dead_card.modulate = Color(0.6, 0.6, 0.6, 0.8)
-    dead_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    
-    # Make health text red for dead minions
-    var stats_label = dead_card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label:
-        stats_label.add_theme_color_override("font_color", Color.RED)
-    
-    return dead_card
-
-func _apply_health_color_to_card(card: Control, current_health: int, max_health: int) -> void:
-    """Apply orange color to health text if minion is damaged"""
-    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label and current_health < max_health:
-        # Damaged minion - make health orange
-        stats_label.add_theme_color_override("font_color", Color.ORANGE)
-    elif stats_label:
-        # Full health - normal color
-        stats_label.add_theme_color_override("font_color", Color.WHITE)
-
-func _apply_health_color_to_card_enhanced(card: Control, current_health: int, max_health: int) -> void:
-    """Apply color to health text: red for dead (<=0), orange for damaged, white for full"""
-    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label:
-        if current_health <= 0:
-            # Dead minion - make health red
-            stats_label.add_theme_color_override("font_color", Color.RED)
-        elif current_health < max_health:
-            # Damaged minion - make health orange
-            stats_label.add_theme_color_override("font_color", Color.ORANGE)
-        else:
-            # Full health - normal color
-            stats_label.add_theme_color_override("font_color", Color.WHITE)
-
-func _restore_original_player_board() -> void:
-    """Restore the player board to its original state (before combat result view)"""
-    var children_to_remove = []
-    
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            # Remove result cards and dead minion cards
-            if (child.name.begins_with("PlayerResult_") or 
-                child.name.begins_with("PlayerDead_")):
-                children_to_remove.append(child)
-            else:
-                # Show original minions that were hidden
-                child.visible = true
-                
-                # Reset any color overrides that might have been applied
-                var stats_label = child.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-                if stats_label:
-                    stats_label.remove_theme_color_override("font_color")
-                
-                # Reset modulation
-                child.modulate = Color.WHITE
-    
-    # Remove result cards and tombstones
-    for child in children_to_remove:
-        child.queue_free()
-
-func display_combat_log(action_log: Array) -> void:
-    """Display combat actions in the combat log"""
-    if not combat_log_display:
-        return
-        
-    combat_log_display.clear()
-    combat_log_display.append_text("[b]BATTLE LOG[/b]\n\n")
-    
-    for action in action_log:
-        var log_line = format_combat_action(action)
-        combat_log_display.append_text(log_line + "\n")
+# All combat display functions moved to CombatManager:
+# _display_final_player_board, _display_final_enemy_board, _create_dead_minion_card,
+# _apply_health_color_to_card, _apply_health_color_to_card_enhanced, _restore_original_player_board,
+# display_combat_log
 
 func format_combat_action(action: Dictionary) -> String:
     """Format a combat action for display"""
@@ -1520,12 +725,12 @@ func format_combat_action(action: Dictionary) -> String:
 # Combat UI Event Handlers (Phase 2B.2)
 
 func _on_start_combat_button_pressed() -> void:
-    """Handle start combat button press"""
-    if not enemy_board_selector:
+    """Handle start combat button press - delegate to CombatManager"""
+    if not ui_manager.enemy_board_selector:
         print("Error: Enemy board selector not available")
         return
         
-    var selected_index = enemy_board_selector.selected
+    var selected_index = ui_manager.enemy_board_selector.selected
     var board_names = EnemyBoards.get_enemy_board_names()
     
     if selected_index < 0 or selected_index >= board_names.size():
@@ -1533,218 +738,40 @@ func _on_start_combat_button_pressed() -> void:
         return
         
     var selected_board_name = board_names[selected_index]
-    print("Starting combat against: %s" % selected_board_name)
-    
-    # Switch to combat screen
-    switch_to_combat_mode(selected_board_name)
-    
-    # Run combat simulation and display results
-    var combat_result = simulate_full_combat(selected_board_name)
-    display_combat_log(combat_result)
-    
-    # Automatically show the combined result view (log + final board states)
-    _show_combat_result_with_log()
+    combat_manager.start_combat(selected_board_name)
 
 # Combat view toggle function removed - now showing combined result view only
 
 func _on_return_to_shop_button_pressed() -> void:
-    """Handle return to shop button press - advance turn and switch back to shop"""
-    print("Return to shop button pressed")
-    
-    # Advance to next turn
-    start_new_turn()
-    
-    # Switch back to shop mode
-    switch_to_shop_mode()
+    """Handle return to shop button press - delegate to CombatManager"""
+    combat_manager.return_to_shop()
+
+func _on_refresh_shop_button_pressed() -> void:
+    """Handle refresh shop button press"""
+    shop_manager.handle_refresh_button_pressed()
+
+func _on_upgrade_shop_button_pressed() -> void:
+    """Handle upgrade shop button press"""
+    shop_manager.handle_upgrade_button_pressed()
+
+# Note: End turn button removed - turns now advance automatically after combat
+# func _on_end_turn_button_pressed() -> void:
+#     """Handle end turn button press"""
+#     print("End turn button pressed")
+#     GameState.start_new_turn()
+#     print("Started turn %d" % GameState.current_turn)
 
 func _on_enemy_board_selected(index: int) -> void:
-    """Handle enemy board selection change"""
-    var board_names = EnemyBoards.get_enemy_board_names()
-    if index >= 0 and index < board_names.size():
-        var selected_board = board_names[index]
-        var board_data = EnemyBoards.create_enemy_board(selected_board)
-        
-        # Update enemy health based on selected board
-        if board_data.has("health"):
-            set_enemy_health(board_data.health)
-            
-        print("Selected enemy board: %s (Health: %d)" % [board_data.get("name", selected_board), board_data.get("health", enemy_health)])
+    """Handle enemy board selection from dropdown - delegate to CombatManager"""
+    combat_manager.handle_enemy_board_selection(index)
 
 # Enhanced Combat Algorithm (Phase 2B.3)
 
-func pick_random_from_array(array: Array):
-    """Helper function to pick a random element from an array"""
-    if array.is_empty():
-        return null
-    return array[randi() % array.size()]
+# pick_random_from_array moved to CombatManager
 
-func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
-    """Enhanced combat algorithm with improved turn-based logic"""
-    var action_log = []
-    var p_attacker_index = 0
-    var e_attacker_index = 0
-    var attack_count = 0
-    var max_attacks = 500
-    
-    action_log.append({
-        "type": "combat_start", 
-        "player_minions": player_minions.size(), 
-        "enemy_minions": enemy_minions.size()
-    })
-    
-    # Check for immediate win conditions (empty armies)
-    if player_minions.is_empty() and enemy_minions.is_empty():
-        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-        return action_log
-    elif player_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
-        take_damage(combat_damage, true)
-        return action_log
-    elif enemy_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
-        take_damage(combat_damage, false)
-        return action_log
-    
-    # Determine who goes first: more minions = first attack, equal count = random
-    var p_turn: bool
-    if player_minions.size() > enemy_minions.size():
-        p_turn = true
-        action_log.append({"type": "first_attacker", "attacker": "player", "reason": "more_minions"})
-    elif enemy_minions.size() > player_minions.size():
-        p_turn = false
-        action_log.append({"type": "first_attacker", "attacker": "enemy", "reason": "more_minions"})
-    else:
-        # Equal minions - random first attacker
-        p_turn = randi() % 2 == 0
-        var first_attacker = "player" if p_turn else "enemy"
-        action_log.append({"type": "first_attacker", "attacker": first_attacker, "reason": "random_equal_minions"})
-    
-    # Main combat loop
-    while attack_count < max_attacks:
-        # Check if combat should continue (both sides have minions)
-        if player_minions.is_empty() or enemy_minions.is_empty():
-            # This should be caught by the post-attack win condition check,
-            # but this is a safety check for the first iteration
-            break
-        
-        # Current player has minions - select attacker and defender
-        var attacker
-        var defender
-        
-        if p_turn:
-            # Player attacks
-            if p_attacker_index >= player_minions.size(): 
-                p_attacker_index = 0
-            attacker = player_minions[p_attacker_index]
-            defender = pick_random_from_array(enemy_minions)
-        else:
-            # Enemy attacks
-            if e_attacker_index >= enemy_minions.size(): 
-                e_attacker_index = 0
-            attacker = enemy_minions[e_attacker_index]
-            defender = pick_random_from_array(player_minions)
-        
-        # Check if we have valid attacker and defender before executing attack
-        if attacker == null or defender == null:
-            action_log.append({"type": "combat_end", "reason": "null_combatant", "winner": "tie"})
-            break
-        
-        # Execute attack (even 0-damage attacks count as attempts)
-        execute_attack(attacker, defender, action_log)
-        attack_count += 1
-        
-        # Remove dead minions
-        player_minions = player_minions.filter(func(m): return m.current_health > 0)
-        enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
-        
-        # Check win conditions after removing dead minions
-        if player_minions.is_empty() and enemy_minions.is_empty():
-            action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-            break
-        elif player_minions.is_empty():
-            action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
-            take_damage(combat_damage, true)
-            break
-        elif enemy_minions.is_empty():
-            action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
-            take_damage(combat_damage, false)
-            break
-        
-        # Advance turn
-        if p_turn:
-            p_attacker_index += 1
-        else:
-            e_attacker_index += 1
-        p_turn = not p_turn
-    
-    # Handle max attacks reached
-    if attack_count >= max_attacks:
-        action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
-    
-    # Store final combat state for result view
-    final_player_minions = player_minions.duplicate(true)
-    final_enemy_minions = enemy_minions.duplicate(true)
-    
-    # Don't auto-advance turn in combat mode - player uses "Return to Shop" button
-    if current_mode == GameMode.SHOP:
-        # After combat ends, start the next turn (for testing mode)
-        action_log.append({"type": "turn_start", "turn": current_turn + 1})
-        start_new_turn()
-    
-    return action_log
+# run_combat moved to CombatManager
 
-func execute_attack(attacker, defender, action_log: Array) -> void:
-    """Execute an attack between two combat minions with detailed logging"""
-    action_log.append({
-        "type": "attack",
-        "attacker_id": attacker.minion_id,
-        "defender_id": defender.minion_id,
-        "attacker_attack": attacker.current_attack,
-        "attacker_health": attacker.current_health,
-        "defender_attack": defender.current_attack,
-        "defender_health": defender.current_health
-    })
-    
-    # Simultaneous damage
-    var attacker_damage = attacker.current_attack
-    var defender_damage = defender.current_attack
-    
-    defender.current_health -= attacker_damage
-    attacker.current_health -= defender_damage
-    
-    action_log.append({
-        "type": "damage",
-        "target_id": defender.minion_id,
-        "amount": attacker_damage,
-        "new_health": defender.current_health
-    })
-    
-    action_log.append({
-        "type": "damage", 
-        "target_id": attacker.minion_id,
-        "amount": defender_damage,
-        "new_health": attacker.current_health
-    })
-    
-    # Check for deaths
-    if defender.current_health <= 0:
-        action_log.append({"type": "death", "target_id": defender.minion_id})
-    
-    if attacker.current_health <= 0:
-        action_log.append({"type": "death", "target_id": attacker.minion_id})
-
-func simulate_full_combat(enemy_board_name: String) -> Array:
-    """Simulate a complete combat using enhanced algorithm and return action log"""
-    # Create combat armies
-    var player_army = create_player_combat_army()
-    var enemy_army = create_enemy_combat_army(enemy_board_name)
-    
-    # Store original counts for result view
-    original_player_count = player_army.size()
-    original_enemy_count = enemy_army.size()
-    
-    # Run the enhanced combat algorithm
-    return run_combat(player_army, enemy_army)
+# execute_attack, simulate_full_combat moved to CombatManager
 
 # NEW: Tavern Phase Buff Application Functions
 
@@ -1768,26 +795,26 @@ func apply_tavern_buff_to_minion(target_minion, buff) -> void:  # target_minion:
     print("Applied %s to %s during tavern phase" % [buff.display_name, target_minion.card_data.get("name", "Unknown")])
 
 func apply_tavern_upgrade_all_minions(attack_bonus: int, health_bonus: int) -> void:
-    """Apply tavern upgrade buff to all board minions"""
-    print("Applying tavern upgrade: +%d/+%d to all board minions" % [attack_bonus, health_bonus])
+    """Apply tavern upgrade buff to all player minions on board"""
+    print("Applying tavern upgrade buff: +%d/+%d to all minions" % [attack_bonus, health_bonus])
     
-    var minions_buffed = 0
-    
-    # Apply to each board minion individually
+    var minion_count = 0
     for child in $MainLayout/PlayerBoard.get_children():
-        if child.has_method("add_persistent_buff") and child.name != "PlayerBoardLabel":
-            # Create a unique buff for each minion (non-stackable buffs need unique IDs)
-            var upgrade_buff = create_stat_modification_buff(
-                "tavern_upgrade_" + str(Time.get_ticks_msec()) + "_" + str(minions_buffed),
-                "+%d/+%d Tavern Upgrade" % [attack_bonus, health_bonus],
-                attack_bonus,
-                health_bonus
-            )
-            
-            apply_tavern_buff_to_minion(child, upgrade_buff)
-            minions_buffed += 1
+        if child.name != "PlayerBoardLabel" and child.has_method("get_card_data"):
+            var card_data = child.get_card_data()
+            if card_data.get("type") == "minion":
+                # Apply the buff
+                var current_attack = card_data.get("attack", 0)
+                var current_health = card_data.get("health", 1)
+                
+                card_data["attack"] = current_attack + attack_bonus
+                card_data["health"] = current_health + health_bonus
+                
+                # Update the card display
+                child.setup_card_data(card_data)
+                minion_count += 1
     
-    print("Tavern upgrade applied to %d minions" % minions_buffed)
+    print("Applied tavern upgrade to %d minions" % minion_count)
 
 func find_minion_by_unique_id(unique_id: String):  # -> Card
     """Find board minion by unique ID to handle duplicates"""
@@ -1808,553 +835,7 @@ func create_stat_modification_buff(buff_id: String, display_name: String, attack
     buff.stackable = false
     return buff
 
-# Test function for the buff system
-func test_buff_system() -> void:
-    """Test function to demonstrate buff system functionality"""
-    print("\n=== Buff System Test ===")
-    
-    var board_minions = []
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.has_method("add_persistent_buff") and child.name != "PlayerBoardLabel":
-            board_minions.append(child)
-    
-    if board_minions.is_empty():
-        print("No minions on board to test buffs")
-        return
-    
-    print("Testing buff system with %d board minions:" % board_minions.size())
-    
-    # Show initial stats
-    for i in range(board_minions.size()):
-        var minion = board_minions[i]
-        print("  %d. %s: %d/%d (base: %d/%d)" % [
-            i + 1,
-            minion.card_data.get("name", "Unknown"),
-            minion.get_effective_attack(),
-            minion.get_effective_health(),
-            minion.base_attack,
-            minion.base_health
-        ])
-    
-    # Test applying a +1/+1 buff to first minion
-    if board_minions.size() > 0:
-        var test_buff = create_stat_modification_buff(
-            "test_buff_" + str(Time.get_ticks_msec()),
-            "+1/+1 Test Buff",
-            1, 1
-        )
-        
-        print("\nApplying +1/+1 test buff to first minion...")
-        apply_tavern_buff_to_minion(board_minions[0], test_buff)
-        
-        print("After buff - %s: %d/%d" % [
-            board_minions[0].card_data.get("name", "Unknown"),
-            board_minions[0].get_effective_attack(),
-            board_minions[0].get_effective_health()
-        ])
-    
-    print("========================\n")
+# === Test functions removed for GameState migration completion ===
+# Will implement proper testing system later
 
-# Test function for CombatMinion system
-func test_combat_minion_system() -> void:
-    """Test CombatMinion creation from board minions and enemy data"""
-    print("\n=== Combat Minion System Test ===")
-    
-    # Test 1: Create CombatMinion from board minion
-    print("\n--- Test 1: Board Minion → CombatMinion ---")
-    var board_minions = []
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
-            board_minions.append(child)
-    
-    if board_minions.size() > 0:
-        var test_minion = board_minions[0]
-        print("Creating CombatMinion from: %s (%d/%d)" % [
-            test_minion.card_data.get("name", "Unknown"),
-            test_minion.get_effective_attack(),
-            test_minion.get_effective_health()
-        ])
-        
-        var combat_minion = CombatMinion.create_from_board_minion(test_minion, "test_combat_1")
-        
-        print("✅ CombatMinion created:")
-        print("   - ID: %s" % combat_minion.minion_id)
-        print("   - Stats: %d/%d (base: %d/%d)" % [
-            combat_minion.current_attack,
-            combat_minion.current_health,
-            combat_minion.base_attack,
-            combat_minion.base_health
-        ])
-        print("   - Combat buffs: %d" % combat_minion.combat_buffs.size())
-    else:
-        print("❌ No board minions found to test")
-    
-    # Test 2: Create CombatMinion from enemy data
-    print("\n--- Test 2: Enemy Data → CombatMinion ---")
-    var enemy_board_data = EnemyBoards.create_enemy_board("mid_game")
-    if not enemy_board_data.is_empty() and enemy_board_data.has("minions"):
-        var enemy_minion_data = enemy_board_data.minions[0]  # First enemy minion
-        
-        print("Creating CombatMinion from enemy: %s" % enemy_minion_data.get("card_id", "Unknown"))
-        if enemy_minion_data.has("buffs"):
-            print("   - Has %d predefined buffs" % enemy_minion_data.buffs.size())
-        
-        var enemy_combat_minion = CombatMinion.create_from_enemy_data(enemy_minion_data, "enemy_combat_1")
-        
-        print("✅ Enemy CombatMinion created:")
-        print("   - ID: %s" % enemy_combat_minion.minion_id)
-        print("   - Stats: %d/%d" % [enemy_combat_minion.current_attack, enemy_combat_minion.current_health])
-        print("   - Combat buffs: %d" % enemy_combat_minion.combat_buffs.size())
-    else:
-        print("❌ Could not load enemy board data")
-    
-    # Test 3: Test adding combat buff
-    print("\n--- Test 3: Adding Combat Buff ---")
-    if board_minions.size() > 0:
-        var test_minion = board_minions[0]
-        var combat_minion = CombatMinion.create_from_board_minion(test_minion, "test_combat_buff")
-        
-        print("Before buff: %d/%d" % [combat_minion.current_attack, combat_minion.current_health])
-        
-        # Create a temporary combat buff
-        var combat_buff = create_stat_modification_buff(
-            "temp_combat_buff",
-            "+2/+2 Combat Buff",
-            2, 2
-        )
-        
-        combat_minion.add_combat_buff(combat_buff)
-        
-        print("After +2/+2 buff: %d/%d" % [combat_minion.current_attack, combat_minion.current_health])
-        print("✅ Combat buff system working")
-    
-    print("================================\n")
-
-# Combat UI System Test (Phase 2B.2)
-func test_combat_ui_system() -> void:
-    """Test function to demonstrate combat UI functionality"""
-    print("\n=== Combat UI System Test ===")
-    
-    print("Combat UI Components:")
-    print("  - Enemy Board Selector: %s" % ("✅" if enemy_board_selector else "❌"))
-    print("  - Combat Log Display: %s" % ("✅" if combat_log_display else "❌"))
-    print("  - Player Health Label: %s" % ("✅" if player_health_label else "❌"))
-    print("  - Enemy Health Label: %s" % ("✅" if enemy_health_label else "❌"))
-    print("  - Start Combat Button: %s" % ("✅" if start_combat_button else "❌"))
-    
-    if enemy_board_selector:
-        print("  - Available enemy boards: %d" % enemy_board_selector.get_item_count())
-        for i in range(enemy_board_selector.get_item_count()):
-            print("    %d. %s" % [i + 1, enemy_board_selector.get_item_text(i)])
-    
-    print("\nCurrent Health Status:")
-    print("  - Player: %d" % player_health)
-    print("  - Enemy: %d" % enemy_health)
-    
-    # Test health display updates
-    print("\nTesting health display updates...")
-    var original_player_health = player_health
-    var original_enemy_health = enemy_health
-    
-    # Temporary health change to test UI updates
-    player_health = 20
-    enemy_health = 15
-    update_health_displays()
-    
-    print("  - Updated to Player: 20, Enemy: 15")
-    
-    # Restore original health
-    player_health = original_player_health
-    enemy_health = original_enemy_health
-    update_health_displays()
-    
-    print("  - Restored to Player: %d, Enemy: %d" % [player_health, enemy_health])
-    
-    print("==============================\n")
-
-# Player Health System Test (Phase 2A.4)
-func test_enhanced_combat_algorithm() -> void:
-    """Test function to demonstrate enhanced combat algorithm (Phase 2B.3)"""
-    print("\n=== Enhanced Combat Algorithm Test ===")
-    
-    # Reset health for clean test
-    reset_health()
-    
-    # Test with different enemy boards
-    var enemy_boards_to_test = ["early_game", "mid_game", "late_game"]
-    
-    for board_name in enemy_boards_to_test:
-        print("\n--- Testing Combat vs %s ---" % board_name)
-        print("Pre-combat state: Turn %d, Gold %d/%d" % [current_turn, current_gold, player_base_gold])
-        
-        # Create combat armies
-        var player_army = create_player_combat_army()
-        var enemy_army = create_enemy_combat_army(board_name)
-        
-        print("Player army: %d minions" % player_army.size())
-        for minion in player_army:
-            print("  - %s: %d/%d" % [minion.source_card_id, minion.current_attack, minion.current_health])
-        
-        print("Enemy army (%s): %d minions" % [board_name, enemy_army.size()])
-        for minion in enemy_army:
-            print("  - %s: %d/%d" % [minion.source_card_id, minion.current_attack, minion.current_health])
-        
-        # Run enhanced combat algorithm
-        print("\nRunning enhanced combat algorithm...")
-        var combat_log = run_combat(player_army.duplicate(true), enemy_army.duplicate(true))
-        
-        print("Combat result: %d actions logged" % combat_log.size())
-        
-        # Highlight key combat features
-        print("Key combat events:")
-        for i in range(min(3, combat_log.size())):
-            var action = combat_log[i]
-            if action.get("type") in ["combat_start", "first_attacker"]:
-                print("  %s" % format_combat_action(action))
-        
-        # Show some attack examples
-        var attack_count = 0
-        for action in combat_log:
-            if action.get("type") == "attack" and attack_count < 3:
-                print("  Attack example: %s" % format_combat_action(action))
-                attack_count += 1
-        
-        # Show final resolution
-        if combat_log.size() > 1:
-            # Look for the combat result (before turn_start)
-            for i in range(combat_log.size() - 1, -1, -1):
-                var action = combat_log[i]
-                if action.get("type") in ["combat_end", "combat_tie"]:
-                    print("  Final result: %s" % format_combat_action(action))
-                    break
-        
-        print("Current health - Player: %d, Enemy: %d" % [player_health, enemy_health])
-        print("Post-combat state: Turn %d, Gold %d/%d" % [current_turn, current_gold, player_base_gold])
-        print("------------------------")
-    
-    print("=== Enhanced Combat Test Complete ===\n")
-
-func test_health_system() -> void:
-    """Test function to demonstrate health system functionality"""
-    print("\n=== Player Health System Test ===")
-    
-    print("Initial state:")
-    print("  Player health: %d" % player_health)
-    print("  Enemy health: %d" % enemy_health)
-    print("  Combat damage: %d" % combat_damage)
-    
-    print("\nTesting damage application:")
-    
-    # Test player taking damage
-    print("Player takes %d damage..." % combat_damage)
-    take_damage(combat_damage, true)
-    
-    # Test enemy taking damage  
-    print("Enemy takes %d damage..." % combat_damage)
-    take_damage(combat_damage, false)
-    
-    print("\nAfter combat damage:")
-    print("  Player health: %d" % player_health)
-    print("  Enemy health: %d" % enemy_health)
-    
-    # Test health reset
-    print("\nResetting health...")
-    reset_health()
-    
-    # Test game over scenario
-    print("\nTesting game over scenario:")
-    print("Setting player health to 3...")
-    player_health = 3
-    player_health_changed.emit(player_health)
-    
-    print("Player takes %d damage (should trigger game over)..." % combat_damage)
-    take_damage(combat_damage, true)
-    
-    print("=================================\n")
-
-# Combat preparation functions
-func create_player_combat_army() -> Array:
-    """Create CombatMinion array from player's board"""
-    var combat_army = []
-    var minion_index = 0
-    
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
-            var card_name = child.card_data.get("id", "unknown")
-            var combat_id = "pm_%d_%s" % [minion_index, card_name]
-            var combat_minion = CombatMinion.create_from_board_minion(child, combat_id)
-            combat_minion.position = minion_index
-            combat_army.append(combat_minion)
-            minion_index += 1
-    
-    print("Created player combat army: %d minions" % combat_army.size())
-    return combat_army
-
-func create_enemy_combat_army(enemy_board_name: String) -> Array:
-    """Create CombatMinion array from enemy board configuration"""
-    var combat_army = []
-    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
-    
-    if enemy_board_data.is_empty():
-        print("Failed to load enemy board: %s" % enemy_board_name)
-        return combat_army
-    
-    var minion_index = 0
-    for enemy_minion_data in enemy_board_data.get("minions", []):
-        var card_name = enemy_minion_data.get("card_id", "unknown")
-        var combat_id = "em_%d_%s" % [minion_index, card_name]
-        var combat_minion = CombatMinion.create_from_enemy_data(enemy_minion_data, combat_id)
-        combat_minion.position = minion_index
-        combat_army.append(combat_minion)
-        minion_index += 1
-    
-    print("Created enemy combat army (%s): %d minions" % [enemy_board_name, combat_army.size()])
-    return combat_army
-
-func simulate_combat_preparation(enemy_board_name: String = "mid_game") -> Dictionary:
-    """Simulate preparing for combat - creates both armies"""
-    print("\n=== Combat Preparation Simulation ===")
-    
-    var player_army = create_player_combat_army()
-    var enemy_army = create_enemy_combat_army(enemy_board_name)
-    
-    print("Player army:")
-    for minion in player_army:
-        print("  - %s: %d/%d (pos %d)" % [
-            minion.source_card_id,
-            minion.current_attack,
-            minion.current_health,
-            minion.position
-        ])
-    
-    print("Enemy army (%s):" % enemy_board_name)
-    for minion in enemy_army:
-        print("  - %s: %d/%d (pos %d, buffs: %d)" % [
-            minion.source_card_id,
-            minion.current_attack,
-            minion.current_health,
-            minion.position,
-            minion.combat_buffs.size()
-        ])
-    
-    print("===================================\n")
-    
-    return {
-        "player_army": player_army,
-        "enemy_army": enemy_army,
-        "enemy_board_name": enemy_board_name
-    }
-
-func _ready():
-    # Initialize game state
-    initialize_card_pool()
-    update_ui_displays()
-    update_hand_count()
-    update_board_count()
-    
-    # Apply larger fonts to UI elements
-    apply_ui_font_sizing()
-    
-    # Initialize health system (Phase 2A.4)
-    print("Health System initialized - Player: %d, Enemy: %d" % [player_health, enemy_health])
-    
-    # Connect health signals (UI nodes may not exist yet, so this prepares for future UI)
-    player_health_changed.connect(_on_player_health_changed)
-    enemy_health_changed.connect(_on_enemy_health_changed)
-    game_over.connect(_on_game_over)
-    
-    # Initialize Combat UI (Phase 2B.2)
-    create_combat_ui()
-    populate_enemy_board_selector()
-    connect_combat_ui_signals()
-    
-    # Enemy board system is ready - call test_enemy_board_system() manually to test
-    
-    # Initialize shop with cards
-    refresh_shop()
-    
-    # Players start with an empty hand
-
-# Health system signal handlers (Phase 2A.4)
-func _on_player_health_changed(new_health: int) -> void:
-    """Handle player health changes (future UI updates)"""
-    print("Player health changed to: %d" % new_health)
-    update_health_displays()  # Update combat UI displays
-
-func _on_enemy_health_changed(new_health: int) -> void:
-    """Handle enemy health changes (future UI updates)"""
-    print("Enemy health changed to: %d" % new_health)
-    update_health_displays()  # Update combat UI displays
-
-func _on_game_over(winner: String) -> void:
-    """Handle game over state"""
-    print("Game Over! Winner: %s" % winner)
-    if combat_log_display:
-        combat_log_display.append_text("\n[b][color=yellow]GAME OVER![/color][/b]\n")
-        combat_log_display.append_text("Winner: %s\n" % winner)
-    # TODO: Show game over screen/dialog when UI is available
-
-
-func _on_refresh_shop_button_pressed() -> void:
-    var refresh_cost = 1
-    if spend_gold(refresh_cost):
-        refresh_shop()
-        print("Shop refreshed for ", refresh_cost, " gold")
-    else:
-        print("Cannot refresh shop - need ", refresh_cost, " gold")
-
-func _on_upgrade_shop_button_pressed() -> void:
-    """Handle tavern tier upgrade button press"""
-    if upgrade_tavern_tier():
-        print("Successfully upgraded tavern to tier ", shop_tier)
-    else:
-        print("Failed to upgrade tavern tier")
-
-func _on_end_turn_button_pressed() -> void:
-    print("End turn button pressed")
-    # TEST: Run all system tests instead of normal end turn
-    # NOTE: In normal gameplay, players use "Start Combat" button, which automatically
-    # progresses to next turn after combat ends. This "End Turn" button is for testing.
-    test_health_system()
-    test_combat_minion_system()
-    test_combat_ui_system()
-    test_enhanced_combat_algorithm()  # NEW: Test enhanced combat algorithm (advances turns)
-    test_tavern_upgrade_system()  # NEW: Test tavern upgrade system
-    test_shop_tier_distribution()  # NEW: Test shop tier distribution
-    simulate_combat_preparation("mid_game")
-    # Uncomment below for manual turn advancement without combat:
-    # start_new_turn()
-
-func test_tavern_upgrade_system() -> void:
-    """Test function to validate tavern upgrade system with different scenarios"""
-    print("\n=== Tavern Upgrade System Test ===")
-    
-    # Store original state
-    var original_turn = current_turn
-    var original_tier = shop_tier
-    var original_gold = current_gold
-    var original_upgrade_cost = current_tavern_upgrade_cost
-    
-    # Test case 1: Game start
-    current_turn = 1
-    shop_tier = 1
-    current_tavern_upgrade_cost = 5
-    current_gold = 10
-    print("\nTurn 1, Tier 1, upgrade cost 5, 10 gold:")
-    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 5)")
-    print("  - Can afford: ", can_afford(calculate_tavern_upgrade_cost()))
-    
-    # Test case 2: Turn progression reduces cost
-    current_turn = 2
-    current_tavern_upgrade_cost = 4  # Would be decremented by start_new_turn()
-    print("\nTurn 2, Tier 1, upgrade cost decremented to 4:")
-    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 4)")
-    
-    # Test case 3: After upgrade, cost resets to next tier base
-    current_turn = 2
-    shop_tier = 2
-    current_tavern_upgrade_cost = 7  # Reset after upgrading to tier 2
-    print("\nTurn 2, after upgrading to Tier 2, cost reset to 7:")
-    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: 7)")
-    
-    # Test case 4: Max tier
-    shop_tier = 6
-    print("\nTier 6 (max):")
-    print("  - Can upgrade: ", can_upgrade_tavern(), " (expected: false)")
-    print("  - Upgrade cost: ", calculate_tavern_upgrade_cost(), " (expected: -1)")
-    
-    # Test actual upgrade progression with turn progression
-    current_turn = 1
-    shop_tier = 1
-    current_tavern_upgrade_cost = 5
-    current_gold = 25
-    print("\nUpgrade progression test:")
-    
-    # Simulate turn 1: cost 5, upgrade to tier 2
-    print("Turn 1: Tier 1, upgrade costs ", current_tavern_upgrade_cost)
-    if upgrade_tavern_tier():
-        print("  ✅ Upgraded to tier 2, next upgrade costs ", current_tavern_upgrade_cost)
-    
-    # Simulate turn 2: cost decreases to 6, then upgrade to tier 3  
-    current_tavern_upgrade_cost -= 1  # Simulate turn progression
-    print("Turn 2: Tier 2, upgrade costs ", current_tavern_upgrade_cost, " (7-1)")
-    if upgrade_tavern_tier():
-        print("  ✅ Upgraded to tier 3, next upgrade costs ", current_tavern_upgrade_cost)
-    
-    # Simulate turn 3: cost decreases to 7, then upgrade to tier 4
-    current_tavern_upgrade_cost -= 1  # Simulate turn progression  
-    print("Turn 3: Tier 3, upgrade costs ", current_tavern_upgrade_cost, " (8-1)")
-    if upgrade_tavern_tier():
-        print("  ✅ Upgraded to tier 4, next upgrade costs ", current_tavern_upgrade_cost)
-    
-    # Restore original state
-    current_turn = original_turn
-    shop_tier = original_tier
-    current_gold = original_gold
-    current_tavern_upgrade_cost = original_upgrade_cost
-    update_ui_displays()
-    refresh_shop()
-    
-    print("===============================\n")
-
-func test_shop_tier_distribution() -> void:
-    """Test function to verify shop shows cards from current tier and below"""
-    print("\n=== Shop Tier Distribution Test ===")
-    
-    # Store original state
-    var original_tier = shop_tier
-    
-    # Test tier 1 shop (should only show tier 1)
-    shop_tier = 1
-    print("\nTier 1 shop should show: Tier 1 cards only")
-    var tier1_cards = {}
-    for i in range(10):  # Sample 10 cards
-        var card_id = get_random_card_for_shop(shop_tier)
-        if card_id != "":
-            var card_data = CardDatabase.get_card_data(card_id)
-            var tier = card_data.get("tier", 1)
-            tier1_cards[tier] = tier1_cards.get(tier, 0) + 1
-    print("Tier 1 distribution: ", tier1_cards)
-    
-    # Test tier 3 shop (should show tiers 1, 2, 3)
-    shop_tier = 3  
-    print("\nTier 3 shop should show: Tier 1, 2, 3 cards (tier 1 most common)")
-    var tier3_cards = {}
-    for i in range(20):  # Sample 20 cards
-        var card_id = get_random_card_for_shop(shop_tier)
-        if card_id != "":
-            var card_data = CardDatabase.get_card_data(card_id)
-            var tier = card_data.get("tier", 1)
-            tier3_cards[tier] = tier3_cards.get(tier, 0) + 1
-    print("Tier 3 distribution: ", tier3_cards)
-    
-    # Restore original state
-    shop_tier = original_tier
-    
-    print("===============================\n")
-
-# Test function temporarily commented out due to linter issues with new classes
-# Uncomment after reloading project to register new classes
-#func test_enemy_board_system() -> void:
-#    """Test function to validate enemy board system (can be called from debugger)"""
-#    print("\n=== Enemy Board System Test ===")
-#    
-#    # Test getting board names
-#    var board_names = EnemyBoards.get_enemy_board_names()
-#    print("Available enemy boards: ", board_names)
-#    
-#    # Test each board
-#    for board_name in board_names:
-#        print("\n--- Testing: ", board_name, " ---")
-#        var board_data = EnemyBoards.create_enemy_board(board_name)
-#        
-#        if EnemyBoards.validate_enemy_board(board_data):
-#            var info = EnemyBoards.get_enemy_board_info(board_name)
-#            print("✅ %s: %d minions, %d health" % [info.name, info.minion_count, info.health])
-#            for minion in info.minions:
-#                var buff_indicator = " (buffed)" if minion.has_buffs else ""
-#                print("   - %s: %s → %s%s" % [minion.name, minion.base_stats, minion.effective_stats, buff_indicator])
-#        else:
-#            print("❌ Validation failed for: ", board_name)
-#    
-#    print("===============================\n")
+# Combat preparation functions moved to CombatManager

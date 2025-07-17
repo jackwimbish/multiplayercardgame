@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://bjl58tv46o1q6"]
+[gd_scene load_steps=3 format=3 uid="uid://bjl58tv46o1q6"]
 
 [ext_resource type="Script" uid="uid://d4nngdpxx8mfg" path="res://game_board.gd" id="1_i37i2"]
+[ext_resource type="Script" uid="uid://bsdgunodtwdw7" path="res://ui_manager.gd" id="2_ui_mgr"]
 
 [node name="GameBoard" type="Control"]
 layout_mode = 3
@@ -19,6 +20,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+script = ExtResource("2_ui_mgr")
 
 [node name="TopUI" type="HBoxContainer" parent="MainLayout"]
 layout_mode = 2
