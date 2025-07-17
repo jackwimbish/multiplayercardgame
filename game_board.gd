@@ -279,11 +279,13 @@ func _on_card_dropped(card):
             _handle_board_reorder_drop(card)
         ["board", "hand"]:
             _handle_board_to_hand_drop(card)  # Now handles this as invalid
+        ["board", "shop"]:
+            _handle_board_to_shop_drop(card)  # Sell minion for gold
         ["shop", "board"], ["shop", "shop"], ["shop", "invalid"]:
             _handle_invalid_shop_drop(card)
         ["hand", "shop"], ["hand", "invalid"]:
             _handle_invalid_hand_drop(card)
-        ["board", "shop"], ["board", "invalid"]:
+        ["board", "invalid"]:
             _handle_invalid_board_drop(card)
         _:
             print("Unhandled drop scenario: ", origin_zone, " -> ", drop_zone)
@@ -393,6 +395,39 @@ func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
     print("Cannot return minions from board to hand - this is not allowed")
     _return_card_to_board(card)
+
+func _handle_board_to_shop_drop(card):
+    """Handle selling a minion by dragging from board to shop"""
+    # Only allow selling during shop phase
+    if GameState.current_mode != GameState.GameMode.SHOP:
+        print("Cannot sell minions during combat phase")
+        _return_card_to_board(card)
+        return
+    
+    # Get card info for feedback
+    var card_name = card.get_node("VBoxContainer/CardName").text
+    var card_data = _find_card_data_by_name(card_name)
+    
+    if card_data.is_empty():
+        print("Error: Could not find card data for ", card_name)
+        _return_card_to_board(card)
+        return
+    
+    # Only minions can be sold (should always be true since it's from board)
+    if card_data.get("type", "") != "minion":
+        print("Error: Non-minion on board - cannot sell")
+        _return_card_to_board(card)
+        return
+    
+    # Execute the sale
+    GameState.gain_gold(1)
+    card.queue_free()  # Remove the minion card
+    
+    # Update displays
+    update_board_count()
+    update_ui_displays()  # Update gold display
+    
+    print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -506,6 +541,12 @@ func _update_drop_zone_feedback():
         ["board", "hand"]:
             # Invalid - minions cannot be returned to hand from board
             _highlight_container($MainLayout/PlayerHand, Color.RED)
+        ["board", "shop"]:
+            # Valid selling zone (only during shop phase)
+            if GameState.current_mode == GameState.GameMode.SHOP:
+                _highlight_container($MainLayout/ShopArea, Color.YELLOW)
+            else:
+                _highlight_container($MainLayout/ShopArea, Color.RED)
         ["shop", "board"], ["shop", "shop"]:
             # Invalid zones for shop cards
             _highlight_invalid_zone(current_drop_zone)
