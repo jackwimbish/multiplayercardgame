@@ -106,3 +106,7 @@ func _adjust_description_font_size(description: String) -> void:
     
     # Apply the font size
     description_label.add_theme_font_size_override("font_size", font_size)
+
+func get_card_data() -> Dictionary:
+    """Return the card data dictionary"""
+    return card_data

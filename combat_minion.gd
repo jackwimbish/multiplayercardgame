@@ -93,4 +93,35 @@ func get_current_attack() -> int:
 
 func get_current_health() -> int:
 	"""Get current health value (for buff system compatibility)"""
-	return current_health 
+	return current_health
+
+func get_effective_attack() -> int:
+	"""Get effective attack value (alias for get_current_attack for combat compatibility)"""
+	return current_attack
+
+func take_damage(amount: int) -> void:
+	"""Apply damage to this combat minion"""
+	current_health = max(0, current_health - amount)
+
+func get_display_name() -> String:
+	"""Get display name for combat logging"""
+	var card_name = "Unknown"
+	
+	# Try to get name from CardDatabase if we have the card ID
+	if source_card_id != "" and source_card_id != "unknown":
+		var card_data = CardDatabase.get_card_data(source_card_id)
+		if not card_data.is_empty():
+			card_name = card_data.get("name", "Unknown")
+	
+	# Extract owner and position from minion_id (format: "player_0" or "enemy_1")
+	var display_name = card_name
+	if minion_id != "":
+		var parts = minion_id.split("_")
+		if parts.size() >= 2:
+			var owner = parts[0].capitalize()  # "player" -> "Player", "enemy" -> "Enemy"
+			var position = parts[1]
+			display_name = "%s %s %s" % [owner, card_name, position]
+		else:
+			display_name = "%s (%s)" % [card_name, minion_id]
+	
+	return display_name 
