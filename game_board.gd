@@ -2,6 +2,7 @@ extends Control
 
 const DEFAULT_PORT = 9999
 const CardScene = preload("res://card.tscn")
+const ShopManagerScript = preload("res://shop_manager.gd")
 var dragged_card = null
 
 # Core game state is now managed by GameState singleton
@@ -10,12 +11,13 @@ var dragged_card = null
 # Player Health System (Phase 2A.4) - now managed by GameState
 @export var combat_damage: int = 5  # Keep this for UI configuration
 
-signal player_health_changed(new_health: int)
-signal enemy_health_changed(new_health: int)
 signal game_over(winner: String)
 
 # UI Manager reference
 @onready var ui_manager = $MainLayout
+
+# Shop Manager instance
+var shop_manager: ShopManagerScript
 
 # Combat Screen State Management - now using GameState.current_mode
 var current_enemy_board_name: String = ""
@@ -35,16 +37,19 @@ var original_enemy_count: int = 0        # For dead minion slots
 func _ready():
     # Note: UI setup is now handled by UIManager
     # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
-    GameState.shop_tier_changed.connect(_on_shop_tier_changed)
     GameState.game_over.connect(_on_game_over)
     
+    # Initialize ShopManager
+    shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
+    
+    # Connect UI signals to game logic
+    ui_manager.forward_card_clicked.connect(_on_card_clicked)
+    ui_manager.forward_card_drag_started.connect(_on_card_drag_started)
+    
     # Initialize game systems
-    refresh_shop()
+    shop_manager.refresh_shop()
 
 # === SIGNAL HANDLERS FOR GAMESTATE ===
-func _on_shop_tier_changed(new_tier: int):
-    refresh_shop()
-
 func _on_game_over(winner: String):
     print("Game Over! Winner: ", winner)
 
@@ -87,54 +92,7 @@ func update_hand_count():
 func update_board_count():
     ui_manager.update_board_display()
 
-func get_shop_size_for_tier(tier: int) -> int:
-    """Get number of cards shown in shop for given tier"""
-    match tier:
-        1: return 3
-        2, 3: return 4  
-        4, 5: return 5
-        6: return 6
-        _: return 3  # Default fallback
-
-func get_random_card_for_shop(max_tier: int) -> String:
-    """Get a random card ID from max_tier and below, weighted by copies in pool"""
-    var weighted_cards = []
-    
-    # Create weighted selection based on pool copies (more copies = higher chance)
-    for card_id in GameState.card_pool.keys():
-        var copies_available = GameState.card_pool[card_id]
-        if copies_available > 0:  # Has remaining copies
-            var card_data = CardDatabase.get_card_data(card_id)
-            var card_tier = card_data.get("tier", 1)
-            
-            # Include cards from max_tier and below that are shop-available
-            if card_tier <= max_tier and card_data.get("shop_available", true):
-                # Add this card_id multiple times based on copies available
-                for i in range(copies_available):
-                    weighted_cards.append(card_id)
-    
-    if weighted_cards.is_empty():
-        print("Warning: No available shop cards for tier ", max_tier, " and below")
-        return ""
-    
-    # Return random card from weighted options
-    return weighted_cards[randi() % weighted_cards.size()]
-
-func refresh_shop():
-    """Clear and populate the shop with random cards for current tier"""
-    # Clear existing shop cards (except label)
-    for child in $MainLayout/ShopArea.get_children():
-        if child.name != "ShopAreaLabel":
-            child.queue_free()
-    
-    var shop_size = get_shop_size_for_tier(GameState.shop_tier)
-    print("Refreshing shop (tier ", GameState.shop_tier, ") with ", shop_size, " cards")
-    
-    # Add new random cards to shop
-    for i in range(shop_size):
-        var card_id = get_random_card_for_shop(GameState.shop_tier)
-        if card_id != "":
-            add_card_to_shop(card_id)
+# Note: Most shop functions moved to ShopManager
 
 func create_card_instance(card_data: Dictionary, card_id: String = ""):
     """Create the appropriate card instance based on card type"""
@@ -154,23 +112,9 @@ func create_card_instance(card_data: Dictionary, card_id: String = ""):
     new_card.setup_card_data(enhanced_card_data)
     return new_card
 
-func add_card_to_shop(card_id: String):
-    """Add a card to the shop area"""
-    var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = create_card_instance(card_data, card_id)
-    
-    # Connect drag handler for shop cards (drag-to-purchase)
-    new_card.drag_started.connect(_on_card_drag_started)
-    
-    # Store card_id for purchase logic
-    new_card.set_meta("card_id", card_id)
-    
-    $MainLayout/ShopArea.add_child(new_card)
-
-
-
 func add_card_to_hand_direct(card_id: String):
-    """Add a card directly to hand (used by purchase system)"""
+    """Add a card directly to hand (delegated to ShopManager for purchase logic)"""
+    # For purchases, delegate to ShopManager; for other uses, create card directly
     var card_data = CardDatabase.get_card_data(card_id)
     var new_card = create_card_instance(card_data, card_id)
     
@@ -379,43 +323,14 @@ func _on_card_dropped(card):
 
 func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
-    var card_id = card.get_meta("card_id", "")
-    if card_id == "":
-        print("Error: Shop card missing card_id metadata")
-        _return_card_to_shop(card)
-        return
+    # Delegate to ShopManager for purchase logic
+    var success = shop_manager.handle_shop_card_purchase_by_drag(card)
     
-    var card_data = CardDatabase.get_card_data(card_id)
-    var cost = card_data.get("cost", 3)
-    
-    print("Attempting to purchase ", card_data.get("name", "Unknown"), " for ", cost, " gold via drag")
-    
-    # Check purchase validation (reuse existing logic)
-    if not GameState.can_afford(cost):
-        print("Cannot afford card - need ", cost, " gold, have ", GameState.current_gold)
-        _return_card_to_shop(card)
-        return
-    
-    if is_hand_full():
-        print("Cannot purchase - hand is full (", get_hand_size(), "/", ui_manager.max_hand_size, ")")
-        _return_card_to_shop(card)
-        return
-    
-    if GameState.card_pool.get(card_id, 0) <= 0:
-        print("Card no longer available in pool")
-        _return_card_to_shop(card)
-        return
-    
-    # Execute purchase
-    if GameState.spend_gold(cost):
-        # Remove from pool
-        GameState.card_pool[card_id] -= 1
-        
-        # Convert shop card to hand card
-        _convert_shop_card_to_hand_card(card, card_id)
-        
-        print("Purchased ", card_data.get("name", "Unknown"), " via drag - Remaining in pool: ", GameState.card_pool[card_id])
+    if success:
+        # Purchase succeeded - clean up the dragged card node
+        card.queue_free()
     else:
+        # Return card to shop if purchase failed
         _return_card_to_shop(card)
 
 func _handle_hand_reorder_drop(card):
@@ -545,17 +460,7 @@ func _return_card_to_board(card):
     """Return a card to the board area"""
     card.reparent($MainLayout/PlayerBoard)
 
-func _convert_shop_card_to_hand_card(shop_card, card_id: String):
-    """Convert a shop card into a hand card with proper connections"""
-    # Remove the shop card from the shop area first
-    var shop_position = shop_card.get_index()
-    shop_card.queue_free()
-    
-    # Create a new hand card with the same data
-    add_card_to_hand_direct(card_id)
-    
-    # Update counts
-    update_hand_count()
+# Note: _convert_shop_card_to_hand_card moved to ShopManager
 
 func _find_card_data_by_name(card_name: String) -> Dictionary:
     """Find card data by card name from the database"""
@@ -1274,26 +1179,11 @@ func _on_return_to_shop_button_pressed() -> void:
 
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
-    var refresh_cost = 1  # Standard refresh cost
-    
-    if GameState.can_afford(refresh_cost):
-        if GameState.spend_gold(refresh_cost):
-            refresh_shop()
-            print("Shop refreshed for %d gold" % refresh_cost)
-    else:
-        print("Cannot afford shop refresh - need %d gold, have %d" % [refresh_cost, GameState.current_gold])
+    shop_manager.handle_refresh_button_pressed()
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
-    if GameState.can_upgrade_tavern():
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if GameState.upgrade_tavern_tier():
-            print("Tavern upgraded to tier %d for %d gold" % [GameState.shop_tier, upgrade_cost])
-            # refresh_shop() is automatically called via the shop_tier_changed signal
-        else:
-            print("Cannot afford tavern upgrade - need %d gold, have %d" % [upgrade_cost, GameState.current_gold])
-    else:
-        print("Tavern already at maximum tier (%d)" % GameState.shop_tier)
+    shop_manager.handle_upgrade_button_pressed()
 
 func _on_end_turn_button_pressed() -> void:
     """Handle end turn button press"""
