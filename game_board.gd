@@ -1461,6 +1461,7 @@ func create_player_combat_army() -> Array:
             var card_data = child.get_card_data()
             if card_data.get("type") == "minion":
                 var combat_minion = CombatMinion.create_from_board_minion(child, "player_%d" % minion_index)
+                combat_minion.position = minion_index  # Set the position for final board display
                 combat_army.append(combat_minion)
                 minion_index += 1
     
@@ -1475,6 +1476,7 @@ func create_enemy_combat_army(enemy_board_name: String) -> Array:
     
     for minion_data in enemy_board_data.get("minions", []):
         var combat_minion = CombatMinion.create_from_enemy_data(minion_data, "enemy_%d" % minion_index)
+        combat_minion.position = minion_index  # Set the position for final board display
         combat_army.append(combat_minion)
         minion_index += 1
     
