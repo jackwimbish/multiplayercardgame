@@ -3,32 +3,20 @@ extends Control
 const DEFAULT_PORT = 9999
 const CardScene = preload("res://card.tscn")
 const ShopManagerScript = preload("res://shop_manager.gd")
+const CombatManagerScript = preload("res://combat_manager.gd")
 var dragged_card = null
 
 # Core game state is now managed by GameState singleton
 # Access via GameState.current_turn, GameState.current_gold, etc.
-
-# Player Health System (Phase 2A.4) - now managed by GameState
-@export var combat_damage: int = 5  # Keep this for UI configuration
 
 signal game_over(winner: String)
 
 # UI Manager reference
 @onready var ui_manager = $MainLayout
 
-# Shop Manager instance
+# Manager instances
 var shop_manager: ShopManagerScript
-
-# Combat Screen State Management - now using GameState.current_mode
-var current_enemy_board_name: String = ""
-
-# Combat Result Toggle System
-var combat_view_toggle_button: Button
-var current_combat_view: String = "log"  # "log" or "result"
-var final_player_minions: Array = []     # Surviving CombatMinions
-var final_enemy_minions: Array = []      # Surviving CombatMinions  
-var original_player_count: int = 0       # For dead minion slots
-var original_enemy_count: int = 0        # For dead minion slots
+var combat_manager: CombatManagerScript
 
 # Constants are now in GameState singleton
 
@@ -41,6 +29,9 @@ func _ready():
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
+    
+    # Initialize CombatManager with card creation delegate
+    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, create_card_instance)
     
     # Connect UI signals to game logic
     ui_manager.forward_card_clicked.connect(_on_card_clicked)
@@ -606,132 +597,9 @@ func _cast_spell(spell_card, card_data: Dictionary):
 
 # Note: Combat UI functions moved to UIManager
 
-# Combat Screen Mode Management
+# Combat functions moved to CombatManager
 
-func switch_to_combat_mode(enemy_board_name: String) -> void:
-    """Switch to combat screen view"""
-    GameState.current_mode = GameState.GameMode.COMBAT
-    current_enemy_board_name = enemy_board_name
-    
-    # Hide shop elements
-    _hide_shop_elements()
-    
-    # Show enemy board in shop area
-    _display_enemy_board_in_shop_area(enemy_board_name)
-    
-    # Update combat UI for combat mode
-    _update_combat_ui_for_combat_mode()
-    
-    # Hide/minimize hand area
-    _minimize_hand_area()
-    
-    print("Switched to combat mode vs %s" % enemy_board_name)
-
-func switch_to_shop_mode() -> void:
-    """Switch back to shop/tavern view"""
-    GameState.current_mode = GameState.GameMode.SHOP
-    current_enemy_board_name = ""
-    
-    # Restore original shop area label
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Shop"
-    $MainLayout/ShopArea/ShopAreaLabel.remove_theme_color_override("font_color")
-    
-    # Show shop elements
-    _show_shop_elements()
-    
-    # Clear enemy board from shop area
-    _clear_enemy_board_from_shop_area()
-    
-    # Restore original player board (in case we were in result view)
-    _restore_original_player_board()
-    
-    # Reset battle selection display (clear previous combat log)
-    if ui_manager.combat_log_display:
-        ui_manager.combat_log_display.clear()
-        ui_manager.combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
-    
-    # Update combat UI for shop mode
-    _update_combat_ui_for_shop_mode()
-    
-    # Show hand area normally
-    _show_hand_area()
-    
-    print("Switched to shop mode")
-
-func _hide_shop_elements() -> void:
-    """Hide shop cards and shop-related buttons"""
-    # Hide shop cards (but keep the ShopAreaLabel visible)
-    for child in $MainLayout/ShopArea.get_children():
-        if child.name != "ShopAreaLabel":
-            child.visible = false
-    
-    # Hide shop-related buttons
-    $MainLayout/TopUI/RefreshShopButton.visible = false
-    $MainLayout/TopUI/UpgradeShopButton.visible = false
-
-func _show_shop_elements() -> void:
-    """Show shop cards and shop-related buttons"""
-    # Show shop cards (label should already be visible)
-    for child in $MainLayout/ShopArea.get_children():
-        child.visible = true
-    
-    # Show shop-related buttons
-    $MainLayout/TopUI/RefreshShopButton.visible = true
-    $MainLayout/TopUI/UpgradeShopButton.visible = true
-
-func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
-    """Create and display enemy minions in the shop area"""
-    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
-    if enemy_board_data.is_empty():
-        print("Failed to load enemy board: %s" % enemy_board_name)
-        return
-    
-    # Update the existing shop area label to show enemy board
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Board: %s" % enemy_board_data.get("name", enemy_board_name)
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Create visual representations of enemy minions
-    for i in range(enemy_board_data.get("minions", []).size()):
-        var enemy_minion_data = enemy_board_data.minions[i]
-        var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
-        
-        # Apply any buffs to the card data for display
-        for buff_data in enemy_minion_data.get("buffs", []):
-            if buff_data.type == "stat_modification":
-                card_data.attack += buff_data.get("attack_bonus", 0)
-                card_data.health += buff_data.get("health_bonus", 0)
-        
-        # Create enemy card display
-        var enemy_card = create_card_instance(card_data, enemy_minion_data.card_id)
-        enemy_card.name = "EnemyMinion_%d" % i
-        
-        # Make enemy cards non-interactive
-        enemy_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-        
-        # Add visual indication this is an enemy
-        enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
-        
-        $MainLayout/ShopArea.add_child(enemy_card)
-
-func _clear_enemy_board_from_shop_area() -> void:
-    """Remove enemy minions from shop area"""
-    var children_to_remove = []
-    for child in $MainLayout/ShopArea.get_children():
-        if (child.name.begins_with("EnemyMinion_") or 
-            child.name.begins_with("EnemyResult_") or
-            child.name.begins_with("EnemyDead_")) and child.name != "ShopAreaLabel":
-            children_to_remove.append(child)
-    
-    for child in children_to_remove:
-        child.queue_free()
-
-func _minimize_hand_area() -> void:
-    """Minimize hand area during combat"""
-    $MainLayout/PlayerHand.visible = false
-
-func _show_hand_area() -> void:
-    """Show hand area normally during shop phase"""
-    $MainLayout/PlayerHand.visible = true
+# Combat helper functions moved to CombatManager
 
 func _update_combat_ui_for_combat_mode() -> void:
     """Update combat UI elements for combat mode"""
@@ -788,310 +656,16 @@ func _update_combat_ui_for_shop_mode() -> void:
         ui_manager.combat_log_display.custom_minimum_size = Vector2(400, 200)
         ui_manager.combat_log_display.visible = true  # Keep visible for "Next Battle" display
 
-# Combat Result Toggle View Functions
+# Combat display functions moved to CombatManager
 
-func _show_combat_result_view() -> void:
-    """Show the final combat result with surviving minions and tombstones"""
-    # Hide combat log
-    if ui_manager.combat_log_display:
-        ui_manager.combat_log_display.visible = false
-    
-    # Clear current enemy board display
-    _clear_enemy_board_from_shop_area()
-    
-    # Show final board states
-    _display_final_player_board()
-    _display_final_enemy_board()
-    
-    print("Showing combat result view")
+# _display_final_player_board_with_dead moved to CombatManager
 
-func _show_combat_log_view() -> void:
-    """Show the combat log view (default)"""
-    # Show combat log
-    if ui_manager.combat_log_display:
-        ui_manager.combat_log_display.visible = true
-    
-    # Clear result view
-    _clear_enemy_board_from_shop_area()
-    
-    # Restore original player board (in case we were in result view)
-    _restore_original_player_board()
-    
-    # Show original enemy board preview
-    _display_enemy_board_in_shop_area(current_enemy_board_name)
-    
-    print("Showing combat log view")
+# _display_final_enemy_board_with_dead moved to CombatManager
 
-func _show_combat_result_with_log() -> void:
-    """Show the combined combat result view with both log and final board states"""
-    # Combat log is already visible and populated
-    
-    # Clear current enemy board display
-    _clear_enemy_board_from_shop_area()
-    
-    # Show final board states
-    _display_final_player_board_with_dead()
-    _display_final_enemy_board_with_dead()
-    
-    print("Showing combined combat result with log")
-
-func _display_final_player_board_with_dead() -> void:
-    """Update player board to show final combat state with dead minions visible"""
-    # Hide original minions instead of removing them
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            child.visible = false
-    
-    # Show surviving minions with updated health
-    for i in range(original_player_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_player_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply health color (orange for damaged, red for dead)
-            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            # Mark as result card for cleanup
-            result_card.name = "PlayerResult_%d" % i
-            $MainLayout/PlayerBoard.add_child(result_card)
-        else:
-            # Create dead minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, true)
-            dead_minion.name = "PlayerDead_%d" % i
-            $MainLayout/PlayerBoard.add_child(dead_minion)
-
-func _display_final_enemy_board_with_dead() -> void:
-    """Display final enemy board state in shop area with dead minions visible"""
-    # Update the existing shop area label to show final state
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Show surviving enemy minions with dead minions
-    for i in range(original_enemy_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_enemy_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply enemy visual style and health color
-            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
-            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-            _apply_health_color_to_card_enhanced(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            result_card.name = "EnemyResult_%d" % i
-            $MainLayout/ShopArea.add_child(result_card)
-        else:
-            # Create dead enemy minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, false)
-            dead_minion.name = "EnemyDead_%d" % i
-            $MainLayout/ShopArea.add_child(dead_minion)
-
-func _display_final_player_board() -> void:
-    """Update player board to show final combat state"""
-    # Hide original minions instead of removing them
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            child.visible = false
-    
-    # Show surviving minions with updated health
-    for i in range(original_player_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_player_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply health color (orange for damaged)
-            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            # Mark as result card for cleanup
-            result_card.name = "PlayerResult_%d" % i
-            $MainLayout/PlayerBoard.add_child(result_card)
-        else:
-            # Create dead minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, true)
-            dead_minion.name = "PlayerDead_%d" % i
-            $MainLayout/PlayerBoard.add_child(dead_minion)
-
-func _display_final_enemy_board() -> void:
-    """Display final enemy board state in shop area"""
-    # Update the existing shop area label to show final state
-    $MainLayout/ShopArea/ShopAreaLabel.text = "Enemy Final State"
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_color_override("font_color", Color.RED)
-    
-    # Show surviving enemy minions with tombstones
-    for i in range(original_enemy_count):
-        var surviving_minion = null
-        
-        # Find surviving minion at this position
-        for minion in final_enemy_minions:
-            if minion.position == i:
-                surviving_minion = minion
-                break
-        
-        if surviving_minion:
-            # Create card showing final state
-            var card_data = CardDatabase.get_card_data(surviving_minion.source_card_id).duplicate()
-            card_data.attack = surviving_minion.current_attack
-            card_data.health = surviving_minion.current_health
-            var result_card = create_card_instance(card_data, surviving_minion.source_card_id)
-            
-            # Apply enemy visual style and health color
-            result_card.modulate = Color(1.0, 0.8, 0.8)  # Red tint
-            result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-            _apply_health_color_to_card(result_card, surviving_minion.current_health, surviving_minion.max_health)
-            
-            result_card.name = "EnemyResult_%d" % i
-            $MainLayout/ShopArea.add_child(result_card)
-        else:
-            # Create dead enemy minion display (greyed out with red health)
-            var dead_minion = _create_dead_minion_card(i, false)
-            dead_minion.name = "EnemyDead_%d" % i
-            $MainLayout/ShopArea.add_child(dead_minion)
-
-func _create_dead_minion_card(position: int, is_player: bool) -> Control:
-    """Create a card showing a dead minion (greyed out with red health)"""
-    # Find the original minion data at this position
-    var original_card_data = {}
-    var original_minions = []
-    
-    # Get original minion data from current board before combat
-    if is_player:
-        for child in $MainLayout/PlayerBoard.get_children():
-            if child.has_method("get_effective_attack") and child.name != "PlayerBoardLabel":
-                original_minions.append(child.card_data.duplicate())
-    else:
-        # For enemy, we need to reconstruct from the enemy board name
-        var enemy_board_data = EnemyBoards.create_enemy_board(current_enemy_board_name)
-        for enemy_minion_data in enemy_board_data.get("minions", []):
-            var card_data = CardDatabase.get_card_data(enemy_minion_data.card_id).duplicate()
-            # Apply buffs
-            for buff_data in enemy_minion_data.get("buffs", []):
-                if buff_data.type == "stat_modification":
-                    card_data.attack += buff_data.get("attack_bonus", 0)
-                    card_data.health += buff_data.get("health_bonus", 0)
-            original_minions.append(card_data)
-    
-    # Get card data for this position
-    if position < original_minions.size():
-        original_card_data = original_minions[position].duplicate()
-    else:
-        # Fallback if position is out of range
-        original_card_data = {
-            "name": "Unknown Minion",
-            "description": "",
-            "attack": 0,
-            "health": 0,
-            "id": "unknown"
-        }
-    
-    # Set health to 0 for dead minion display
-    original_card_data.health = 0
-    
-    var dead_card = create_card_instance(original_card_data, original_card_data.get("id", "unknown"))
-    
-    # Apply greyed-out visual style
-    dead_card.modulate = Color(0.6, 0.6, 0.6, 0.8)
-    dead_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    
-    # Make health text red for dead minions
-    var stats_label = dead_card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label:
-        stats_label.add_theme_color_override("font_color", Color.RED)
-    
-    return dead_card
-
-func _apply_health_color_to_card(card: Control, current_health: int, max_health: int) -> void:
-    """Apply orange color to health text if minion is damaged"""
-    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label and current_health < max_health:
-        # Damaged minion - make health orange
-        stats_label.add_theme_color_override("font_color", Color.ORANGE)
-    elif stats_label:
-        # Full health - normal color
-        stats_label.add_theme_color_override("font_color", Color.WHITE)
-
-func _apply_health_color_to_card_enhanced(card: Control, current_health: int, max_health: int) -> void:
-    """Apply color to health text: red for dead (<=0), orange for damaged, white for full"""
-    var stats_label = card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-    if stats_label:
-        if current_health <= 0:
-            # Dead minion - make health red
-            stats_label.add_theme_color_override("font_color", Color.RED)
-        elif current_health < max_health:
-            # Damaged minion - make health orange
-            stats_label.add_theme_color_override("font_color", Color.ORANGE)
-        else:
-            # Full health - normal color
-            stats_label.add_theme_color_override("font_color", Color.WHITE)
-
-func _restore_original_player_board() -> void:
-    """Restore the player board to its original state (before combat result view)"""
-    var children_to_remove = []
-    
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel":
-            # Remove result cards and dead minion cards
-            if (child.name.begins_with("PlayerResult_") or 
-                child.name.begins_with("PlayerDead_")):
-                children_to_remove.append(child)
-            else:
-                # Show original minions that were hidden
-                child.visible = true
-                
-                # Reset any color overrides that might have been applied
-                var stats_label = child.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-                if stats_label:
-                    stats_label.remove_theme_color_override("font_color")
-                
-                # Reset modulation
-                child.modulate = Color.WHITE
-    
-    # Remove result cards and tombstones
-    for child in children_to_remove:
-        child.queue_free()
-
-func display_combat_log(action_log: Array) -> void:
-    """Display combat actions in the combat log"""
-    if not ui_manager.combat_log_display:
-        return
-        
-    ui_manager.combat_log_display.clear()
-    ui_manager.combat_log_display.append_text("[b]BATTLE LOG[/b]\n\n")
-    
-    for action in action_log:
-        var log_line = format_combat_action(action)
-        ui_manager.combat_log_display.append_text(log_line + "\n")
+# All combat display functions moved to CombatManager:
+# _display_final_player_board, _display_final_enemy_board, _create_dead_minion_card,
+# _apply_health_color_to_card, _apply_health_color_to_card_enhanced, _restore_original_player_board,
+# display_combat_log
 
 func format_combat_action(action: Dictionary) -> String:
     """Format a combat action for display"""
@@ -1140,7 +714,7 @@ func format_combat_action(action: Dictionary) -> String:
 # Combat UI Event Handlers (Phase 2B.2)
 
 func _on_start_combat_button_pressed() -> void:
-    """Handle start combat button press"""
+    """Handle start combat button press - delegate to CombatManager"""
     if not ui_manager.enemy_board_selector:
         print("Error: Enemy board selector not available")
         return
@@ -1153,29 +727,13 @@ func _on_start_combat_button_pressed() -> void:
         return
         
     var selected_board_name = board_names[selected_index]
-    print("Starting combat against: %s" % selected_board_name)
-    
-    # Switch to combat screen
-    switch_to_combat_mode(selected_board_name)
-    
-    # Run combat simulation and display results
-    var combat_result = simulate_full_combat(selected_board_name)
-    display_combat_log(combat_result)
-    
-    # Automatically show the combined result view (log + final board states)
-    _show_combat_result_with_log()
+    combat_manager.start_combat(selected_board_name)
 
 # Combat view toggle function removed - now showing combined result view only
 
 func _on_return_to_shop_button_pressed() -> void:
-    """Handle return to shop button press"""
-    print("Return to shop button pressed")
-    
-    # Return to shop mode
-    switch_to_shop_mode()
-    
-    # Start next turn after combat
-    GameState.start_new_turn()
+    """Handle return to shop button press - delegate to CombatManager"""
+    combat_manager.return_to_shop()
 
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
@@ -1192,198 +750,16 @@ func _on_end_turn_button_pressed() -> void:
     print("Started turn %d" % GameState.current_turn)
 
 func _on_enemy_board_selected(index: int) -> void:
-    """Handle enemy board selection from dropdown"""
-    if index < 0 or index >= ui_manager.enemy_board_selector.get_item_count():
-        return
-    
-    var selected_board = ui_manager.enemy_board_selector.get_item_text(index)
-    current_enemy_board_name = selected_board
-    
-    # Update enemy health based on selected board
-    var board_data = EnemyBoards.create_enemy_board(selected_board)
-    GameState.set_enemy_health(board_data.get("health", GameState.enemy_health))
-    
-    print("Selected enemy board: %s (Health: %d)" % [board_data.get("name", selected_board), board_data.get("health", GameState.enemy_health)])
-    
-    # Update health displays (handled by UIManager automatically via signals)
+    """Handle enemy board selection from dropdown - delegate to CombatManager"""
+    combat_manager.handle_enemy_board_selection(index)
 
 # Enhanced Combat Algorithm (Phase 2B.3)
 
-func pick_random_from_array(array: Array):
-    """Helper function to pick a random element from an array"""
-    if array.is_empty():
-        return null
-    return array[randi() % array.size()]
+# pick_random_from_array moved to CombatManager
 
-func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
-    """Enhanced combat algorithm with improved turn-based logic"""
-    var action_log = []
-    var p_attacker_index = 0
-    var e_attacker_index = 0
-    var attack_count = 0
-    var max_attacks = 500
-    
-    action_log.append({
-        "type": "combat_start", 
-        "player_minions": player_minions.size(), 
-        "enemy_minions": enemy_minions.size()
-    })
-    
-    # Check for immediate win conditions (empty armies)
-    if player_minions.is_empty() and enemy_minions.is_empty():
-        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-        return action_log
-    elif player_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
-        GameState.take_damage(combat_damage, true)
-        return action_log
-    elif enemy_minions.is_empty():
-        action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
-        GameState.take_damage(combat_damage, false)
-        return action_log
-    
-    # Determine who goes first: more minions = first attack, equal count = random
-    var p_turn: bool
-    if player_minions.size() > enemy_minions.size():
-        p_turn = true
-        action_log.append({"type": "first_attacker", "attacker": "player", "reason": "more_minions"})
-    elif enemy_minions.size() > player_minions.size():
-        p_turn = false
-        action_log.append({"type": "first_attacker", "attacker": "enemy", "reason": "more_minions"})
-    else:
-        # Equal minions - random first attacker
-        p_turn = randi() % 2 == 0
-        var first_attacker = "player" if p_turn else "enemy"
-        action_log.append({"type": "first_attacker", "attacker": first_attacker, "reason": "random_equal_minions"})
-    
-    # Main combat loop
-    while attack_count < max_attacks:
-        # Check if combat should continue (both sides have minions)
-        if player_minions.is_empty() or enemy_minions.is_empty():
-            # This should be caught by the post-attack win condition check,
-            # but this is a safety check for the first iteration
-            break
-        
-        # Current player has minions - select attacker and defender
-        var attacker
-        var defender
-        
-        if p_turn:
-            # Player attacks
-            if p_attacker_index >= player_minions.size(): 
-                p_attacker_index = 0
-            attacker = player_minions[p_attacker_index]
-            defender = pick_random_from_array(enemy_minions)
-        else:
-            # Enemy attacks
-            if e_attacker_index >= enemy_minions.size(): 
-                e_attacker_index = 0
-            attacker = enemy_minions[e_attacker_index]
-            defender = pick_random_from_array(player_minions)
-        
-        # Check if we have valid attacker and defender before executing attack
-        if attacker == null or defender == null:
-            action_log.append({"type": "combat_end", "reason": "null_combatant", "winner": "tie"})
-            break
-        
-        # Execute attack (even 0-damage attacks count as attempts)
-        execute_attack(attacker, defender, action_log)
-        attack_count += 1
-        
-        # Remove dead minions
-        player_minions = player_minions.filter(func(m): return m.current_health > 0)
-        enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
-        
-        # Check win conditions after removing dead minions
-        if player_minions.is_empty() and enemy_minions.is_empty():
-            action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-            break
-        elif player_minions.is_empty():
-            action_log.append({"type": "combat_end", "winner": "enemy", "reason": "player_no_minions"})
-            GameState.take_damage(combat_damage, true)
-            break
-        elif enemy_minions.is_empty():
-            action_log.append({"type": "combat_end", "winner": "player", "reason": "enemy_no_minions"})
-            GameState.take_damage(combat_damage, false)
-            break
-        
-        # Advance turn
-        if p_turn:
-            p_attacker_index += 1
-        else:
-            e_attacker_index += 1
-        p_turn = not p_turn
-    
-    # Handle max attacks reached
-    if attack_count >= max_attacks:
-        action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
-    
-    # Store final combat state for result view
-    final_player_minions = player_minions.duplicate(true)
-    final_enemy_minions = enemy_minions.duplicate(true)
-    
-    # Don't auto-advance turn - player uses "Return to Shop" button to advance turn
-    
-    return action_log
+# run_combat moved to CombatManager
 
-func execute_attack(attacker, defender, action_log: Array) -> void:
-    """Execute a single attack between two minions"""
-    var damage_to_defender = attacker.get_effective_attack()
-    var damage_to_attacker = defender.get_effective_attack()
-    
-    # Capture health BEFORE damage for logging
-    var attacker_health_before = attacker.current_health
-    var defender_health_before = defender.current_health
-    
-    # Apply damage
-    defender.take_damage(damage_to_defender)
-    attacker.take_damage(damage_to_attacker)
-    
-    # Log the attack with health BEFORE damage
-    action_log.append({
-        "type": "attack",
-        "attacker_id": attacker.get_display_name(),
-        "defender_id": defender.get_display_name(),
-        "attacker_attack": attacker.get_effective_attack(),
-        "defender_attack": defender.get_effective_attack(),
-        "damage_dealt": damage_to_defender,
-        "damage_received": damage_to_attacker,
-        "attacker_health": attacker_health_before,
-        "defender_health": defender_health_before
-    })
-    
-    # Check for deaths and log them
-    if defender.current_health <= 0:
-        action_log.append({
-            "type": "death",
-            "target_id": defender.get_display_name()
-        })
-    
-    if attacker.current_health <= 0:
-        action_log.append({
-            "type": "death", 
-            "target_id": attacker.get_display_name()
-        })
-
-func simulate_full_combat(enemy_board_name: String) -> Array:
-    """Simulate a complete combat and return the action log"""
-    print("=== COMBAT SIMULATION START ===")
-    
-    # Create combat armies
-    var player_army = create_player_combat_army()
-    var enemy_army = create_enemy_combat_army(enemy_board_name)
-    
-    # Store original counts for result view  
-    original_player_count = player_army.size()
-    original_enemy_count = enemy_army.size()
-    
-    print("Player army: %d minions vs Enemy army (%s): %d minions" % [player_army.size(), enemy_board_name, enemy_army.size()])
-    
-    # Run the actual combat simulation
-    var combat_log = run_combat(player_army, enemy_army)
-    
-    print("=== COMBAT SIMULATION COMPLETE ===")
-    return combat_log
+# execute_attack, simulate_full_combat moved to CombatManager
 
 # NEW: Tavern Phase Buff Application Functions
 
@@ -1450,39 +826,4 @@ func create_stat_modification_buff(buff_id: String, display_name: String, attack
 # === Test functions removed for GameState migration completion ===
 # Will implement proper testing system later
 
-# Combat preparation functions
-func create_player_combat_army() -> Array:
-    """Create CombatMinion array from player's board"""
-    var combat_army = []
-    var minion_index = 0
-    
-    for child in $MainLayout/PlayerBoard.get_children():
-        if child.name != "PlayerBoardLabel" and child.has_method("get_card_data"):
-            var card_data = child.get_card_data()
-            if card_data.get("type") == "minion":
-                var combat_minion = CombatMinion.create_from_board_minion(child, "player_%d" % minion_index)
-                combat_minion.position = minion_index  # Set the position for final board display
-                combat_army.append(combat_minion)
-                minion_index += 1
-    
-    print("Created player combat army: %d minions" % combat_army.size())
-    return combat_army
-
-func create_enemy_combat_army(enemy_board_name: String) -> Array:
-    """Create CombatMinion array from enemy board definition"""
-    var enemy_board_data = EnemyBoards.create_enemy_board(enemy_board_name)
-    var combat_army = []
-    var minion_index = 0
-    
-    for minion_data in enemy_board_data.get("minions", []):
-        var combat_minion = CombatMinion.create_from_enemy_data(minion_data, "enemy_%d" % minion_index)
-        combat_minion.position = minion_index  # Set the position for final board display
-        combat_army.append(combat_minion)
-        minion_index += 1
-    
-    print("Created enemy combat army: %d minions" % combat_army.size())
-    return combat_army
-
-# Duplicate test_combat_minion_system function removed - original exists earlier in file
-
-# simulate_combat_preparation test function removed
+# Combat preparation functions moved to CombatManager
