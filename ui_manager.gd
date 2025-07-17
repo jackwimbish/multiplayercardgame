@@ -48,6 +48,11 @@ func setup_ui():
     populate_enemy_board_selector()
     connect_combat_ui_signals()
     connect_shop_ui_signals()
+    
+    # Hide End Turn button - turns now advance automatically after combat
+    if end_turn_button:
+        end_turn_button.visible = false
+    
     update_all_displays()
 
 func connect_gamestate_signals():

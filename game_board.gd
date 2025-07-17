@@ -29,8 +29,8 @@ func _ready():
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
     
-    # Initialize CombatManager
-    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout)
+    # Initialize CombatManager with ShopManager reference for auto-refresh
+    combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, shop_manager)
     
     # Connect UI signals to game logic
     ui_manager.forward_card_clicked.connect(_on_card_clicked)
@@ -754,11 +754,12 @@ func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
     shop_manager.handle_upgrade_button_pressed()
 
-func _on_end_turn_button_pressed() -> void:
-    """Handle end turn button press"""
-    print("End turn button pressed")
-    GameState.start_new_turn()
-    print("Started turn %d" % GameState.current_turn)
+# Note: End turn button removed - turns now advance automatically after combat
+# func _on_end_turn_button_pressed() -> void:
+#     """Handle end turn button press"""
+#     print("End turn button pressed")
+#     GameState.start_new_turn()
+#     print("Started turn %d" % GameState.current_turn)
 
 func _on_enemy_board_selected(index: int) -> void:
     """Handle enemy board selection from dropdown - delegate to CombatManager"""

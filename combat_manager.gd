@@ -7,6 +7,7 @@ extends RefCounted
 # References to required components
 var ui_manager: UIManager
 var main_layout: Control  # For accessing board containers
+var shop_manager  # Reference to ShopManager for auto-refresh
 
 # Combat state
 var current_enemy_board_name: String = ""
@@ -23,10 +24,11 @@ signal combat_started(enemy_board_name: String)
 signal combat_ended(result: Dictionary)
 signal mode_switched(new_mode: String)
 
-func _init(ui_manager_ref: UIManager, main_layout_ref: Control):
+func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref = null):
 	"""Initialize CombatManager with required references"""
 	ui_manager = ui_manager_ref
 	main_layout = main_layout_ref
+	shop_manager = shop_manager_ref
 	
 	print("CombatManager initialized")
 
@@ -56,8 +58,13 @@ func return_to_shop() -> void:
 	# Return to shop mode
 	switch_to_shop_mode()
 	
-	# Start next turn after combat
+	# Start next turn after combat (increments turn, refreshes gold)
 	GameState.start_new_turn()
+	
+	# Auto-refresh shop for new turn (respecting freeze in Phase 2)
+	if shop_manager:
+		shop_manager.refresh_shop()
+		print("Shop auto-refreshed for turn %d" % GameState.current_turn)
 
 func handle_enemy_board_selection(index: int) -> void:
 	"""Handle enemy board selection from dropdown"""
