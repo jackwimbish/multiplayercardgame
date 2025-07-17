@@ -61,7 +61,6 @@ func _ready():
     GameState.game_over.connect(_on_game_over)
     
     # Initialize systems
-    initialize_card_pool()
     refresh_shop()
     update_ui_displays()
 
@@ -139,21 +138,7 @@ func apply_font_to_button(button: Button, size: int) -> void:
     if button:
         button.add_theme_font_size_override("font_size", size)
 
-func initialize_card_pool():
-    """Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
-    GameState.card_pool.clear()
-    
-    # Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
-    var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
-    
-    # Initialize pool for each shop-available card based on its tier
-    for card_id in CardDatabase.get_all_shop_available_card_ids():
-        var card_data = CardDatabase.get_card_data(card_id)
-        var tier = card_data.get("tier", 1)
-        var copy_count = copies_by_tier.get(tier, 1)
-        GameState.card_pool[card_id] = copy_count
-    
-    print("Card pool initialized (shop cards only): ", GameState.card_pool)
+
 
 func get_shop_size_for_tier(tier: int) -> int:
     """Get number of cards shown in shop for given tier"""

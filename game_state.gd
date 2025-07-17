@@ -53,14 +53,20 @@ func _ready():
 
 # Initialize card pool (migrated from game_board.gd)
 func initialize_card_pool():
-	card_pool = {
-		1: {"Murloc Raider": 18, "Dire Wolf Alpha": 18, "Coin": 18},
-		2: {"Kindly Grandmother": 15, "Faerie Dragon": 15, "Annoy-o-Tron": 15},
-		3: {"Harvest Golem": 13, "Shattered Sun Cleric": 13, "Spider Tank": 13},
-		4: {"Piloted Shredder": 11, "Defender of Argus": 11, "Gnomish Inventor": 11},
-		5: {"Stranglethorn Tiger": 9, "Sludge Belcher": 9, "Azure Drake": 9},
-		6: {"Boulderfist Ogre": 6, "Sunwalker": 6, "Cairne Bloodhoof": 6}
-	}
+	"""Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
+	card_pool.clear()
+	
+	# Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
+	var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
+	
+	# Initialize pool for each shop-available card based on its tier
+	for card_id in CardDatabase.get_all_shop_available_card_ids():
+		var card_data = CardDatabase.get_card_data(card_id)
+		var tier = card_data.get("tier", 1)
+		var copy_count = copies_by_tier.get(tier, 1)
+		card_pool[card_id] = copy_count
+	
+	print("Card pool initialized (shop cards only): ", card_pool)
 
 # Get current state as a dictionary (useful for debugging/save systems later)
 func get_state_snapshot() -> Dictionary:
