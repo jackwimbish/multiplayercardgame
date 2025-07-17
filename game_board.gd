@@ -14,14 +14,8 @@ signal player_health_changed(new_health: int)
 signal enemy_health_changed(new_health: int)
 signal game_over(winner: String)
 
-# Combat UI Integration (Phase 2B.2)
-var enemy_board_selector: OptionButton
-var combat_log_display: RichTextLabel  
-var player_health_label: Label
-var enemy_health_label: Label
-var start_combat_button: Button
-var combat_ui_container: VBoxContainer
-var return_to_shop_button: Button
+# UI Manager reference
+@onready var ui_manager = $MainLayout
 
 # Combat Screen State Management - now using GameState.current_mode
 var current_enemy_board_name: String = ""
@@ -36,50 +30,20 @@ var original_enemy_count: int = 0        # For dead minion slots
 
 # Constants are now in GameState singleton
 
-# Hand/board size tracking
-var max_hand_size: int = 10
-var max_board_size: int = 7
-
-# UI font sizes
-const UI_FONT_SIZE_LARGE = 24    # Main labels, important text
-const UI_FONT_SIZE_MEDIUM = 20   # Secondary labels, buttons
-const UI_FONT_SIZE_SMALL = 16    # Supporting text
+# Note: Hand/board size tracking and UI constants moved to UIManager
 
 func _ready():
-    apply_ui_font_sizing()
-    create_combat_ui()
-    populate_enemy_board_selector()
-    connect_combat_ui_signals()
-    update_health_displays()
-    
-    # Connect to GameState signals for UI updates
-    GameState.turn_changed.connect(_on_turn_changed)
-    GameState.gold_changed.connect(_on_gold_changed)
+    # Note: UI setup is now handled by UIManager
+    # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
     GameState.shop_tier_changed.connect(_on_shop_tier_changed)
-    GameState.player_health_changed.connect(_on_player_health_changed)
-    GameState.enemy_health_changed.connect(_on_enemy_health_changed)
     GameState.game_over.connect(_on_game_over)
     
-    # Initialize systems
+    # Initialize game systems
     refresh_shop()
-    update_ui_displays()
 
 # === SIGNAL HANDLERS FOR GAMESTATE ===
-func _on_turn_changed(new_turn: int):
-    update_ui_displays()
-
-func _on_gold_changed(new_gold: int, max_gold: int):
-    update_ui_displays()
-
 func _on_shop_tier_changed(new_tier: int):
     refresh_shop()
-    update_ui_displays()
-
-func _on_player_health_changed(new_health: int):
-    update_health_displays()
-
-func _on_enemy_health_changed(new_health: int):
-    update_health_displays()
 
 func _on_game_over(winner: String):
     print("Game Over! Winner: ", winner)
@@ -102,43 +66,26 @@ func _on_card_clicked(card_node):
         else:
             print("Cannot afford ", card_id, " - costs ", cost, " gold, have ", GameState.current_gold)
 
+# Note: UI update functions moved to UIManager
+
+# Convenience functions that delegate to UIManager
+func get_hand_size() -> int:
+    return ui_manager.get_hand_size()
+
+func get_board_size() -> int:
+    return ui_manager.get_board_size()
+
+func is_hand_full() -> bool:
+    return ui_manager.is_hand_full()
+
+func is_board_full() -> bool:
+    return ui_manager.is_board_full()
+
 func update_hand_count():
-    var hand_label = get_node_or_null("MainLayout/PlayerHand/PlayerHandLabel")
-    if hand_label:
-        hand_label.text = "Your Hand (" + str(get_hand_size()) + "/" + str(max_hand_size) + ")"
+    ui_manager.update_hand_display()
 
 func update_board_count():
-    var board_label = get_node_or_null("MainLayout/PlayerBoard/PlayerBoardLabel") 
-    if board_label:
-        board_label.text = "Your Board (" + str(get_board_size()) + "/" + str(max_board_size) + ")"
-
-func apply_ui_font_sizing() -> void:
-    """Apply consistent font sizing to all UI elements"""
-    # Top UI labels
-    $MainLayout/TopUI/GoldLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/TopUI/ShopTierLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    
-    # Top UI buttons
-    $MainLayout/TopUI/RefreshShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    $MainLayout/TopUI/UpgradeShopButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    $MainLayout/TopUI/EndTurnButton.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
-    
-    # Area labels
-    $MainLayout/ShopArea/ShopAreaLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/PlayerBoard/PlayerBoardLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-    $MainLayout/PlayerHand/PlayerHandLabel.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
-
-func apply_font_to_label(label: Label, size: int) -> void:
-    """Helper function to apply font size to a label"""
-    if label:
-        label.add_theme_font_size_override("font_size", size)
-
-func apply_font_to_button(button: Button, size: int) -> void:
-    """Helper function to apply font size to a button"""  
-    if button:
-        button.add_theme_font_size_override("font_size", size)
-
-
+    ui_manager.update_board_display()
 
 func get_shop_size_for_tier(tier: int) -> int:
     """Get number of cards shown in shop for given tier"""
@@ -295,21 +242,7 @@ func update_ui_displays():
 # - spend_gold(), can_afford(), increase_base_gold(), add_bonus_gold(), gain_gold()
 # - calculate_tavern_upgrade_cost(), can_upgrade_tavern(), upgrade_tavern_tier()
 
-func get_hand_size() -> int:
-    """Get current number of cards in hand"""
-    return $MainLayout/PlayerHand.get_children().size() - 1  # Subtract label
-
-func get_board_size() -> int:
-    """Get current number of minions on board"""
-    return $MainLayout/PlayerBoard.get_children().size() - 1  # Subtract label
-
-func is_hand_full() -> bool:
-    """Check if hand is at maximum capacity"""
-    return get_hand_size() >= max_hand_size
-
-func is_board_full() -> bool:
-    """Check if board is at maximum capacity"""
-    return get_board_size() >= max_board_size
+# Note: get_hand_size(), get_board_size(), is_hand_full(), is_board_full() moved to UIManager delegation functions above
     
 @rpc("any_peer", "call_local")
 func add_card_to_hand(card_id):
@@ -464,7 +397,7 @@ func _handle_shop_to_hand_drop(card):
         return
     
     if is_hand_full():
-        print("Cannot purchase - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+        print("Cannot purchase - hand is full (", get_hand_size(), "/", ui_manager.max_hand_size, ")")
         _return_card_to_shop(card)
         return
     
@@ -525,7 +458,7 @@ func _handle_hand_to_board_drop(card):
     
     # Check if board is full
     if is_board_full():
-        print("Cannot play minion - board is full (", get_board_size(), "/", max_board_size, ")")
+        print("Cannot play minion - board is full (", get_board_size(), "/", ui_manager.max_board_size, ")")
         _return_card_to_hand(card)
         return
     
@@ -571,7 +504,7 @@ func _handle_board_to_hand_drop(card):
     """Handle returning a minion from board to hand"""
     # Check if hand has space
     if is_hand_full():
-        print("Cannot return minion to hand - hand is full (", get_hand_size(), "/", max_hand_size, ")")
+        print("Cannot return minion to hand - hand is full (", get_hand_size(), "/", ui_manager.max_hand_size, ")")
         _return_card_to_board(card)
         return
     
@@ -766,107 +699,7 @@ func _cast_spell(spell_card, card_data: Dictionary):
 
 # Combat UI Integration Functions (Phase 2B.2)
 
-func create_combat_ui() -> void:
-    """Create combat UI elements programmatically"""
-    # Create main combat UI container
-    combat_ui_container = VBoxContainer.new()
-    combat_ui_container.name = "CombatUI"
-    
-    # Add to the main layout (position it near the top UI)
-    $MainLayout.add_child(combat_ui_container)
-    $MainLayout.move_child(combat_ui_container, 1)  # Place after TopUI
-    
-    # Create health display container
-    var health_container = HBoxContainer.new()
-    health_container.name = "HealthContainer"
-    
-    # Player health label
-    player_health_label = Label.new()
-    player_health_label.name = "PlayerHealthLabel"
-    player_health_label.text = "Player Health: %d" % GameState.player_health
-    player_health_label.add_theme_color_override("font_color", Color.GREEN)
-    apply_font_to_label(player_health_label, UI_FONT_SIZE_LARGE)
-    
-    # Enemy health label  
-    enemy_health_label = Label.new()
-    enemy_health_label.name = "EnemyHealthLabel"
-    enemy_health_label.text = "Enemy Health: %d" % GameState.enemy_health
-    enemy_health_label.add_theme_color_override("font_color", Color.RED)
-    apply_font_to_label(enemy_health_label, UI_FONT_SIZE_LARGE)
-    
-    health_container.add_child(player_health_label)
-    health_container.add_child(enemy_health_label)
-    
-    # Create enemy board selection container
-    var enemy_selection_container = HBoxContainer.new()
-    enemy_selection_container.name = "EnemySelectionContainer"
-    
-    var enemy_label = Label.new()
-    enemy_label.text = "Enemy Board: "
-    apply_font_to_label(enemy_label, UI_FONT_SIZE_MEDIUM)
-    
-    enemy_board_selector = OptionButton.new()
-    enemy_board_selector.name = "EnemyBoardSelector"
-    apply_font_to_button(enemy_board_selector, UI_FONT_SIZE_MEDIUM)
-    
-    enemy_selection_container.add_child(enemy_label)
-    enemy_selection_container.add_child(enemy_board_selector)
-    
-    # Create start combat button
-    start_combat_button = Button.new()
-    start_combat_button.name = "StartCombatButton"
-    start_combat_button.text = "Start Combat"
-    apply_font_to_button(start_combat_button, UI_FONT_SIZE_MEDIUM)
-    
-    # Create combat log display
-    combat_log_display = RichTextLabel.new()
-    combat_log_display.name = "CombatLogDisplay"
-    combat_log_display.custom_minimum_size = Vector2(400, 200)
-    combat_log_display.bbcode_enabled = true
-    combat_log_display.scroll_following = true
-    combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_SMALL)
-    combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_MEDIUM)
-    combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
-    
-    # Add all elements to combat UI container
-    combat_ui_container.add_child(health_container)
-    combat_ui_container.add_child(enemy_selection_container)
-    combat_ui_container.add_child(start_combat_button)
-    combat_ui_container.add_child(combat_log_display)
-    
-    print("Combat UI created successfully")
-
-func populate_enemy_board_selector() -> void:
-    """Populate enemy board dropdown with available options"""
-    if not enemy_board_selector:
-        return
-        
-    enemy_board_selector.clear()
-    
-    # Add enemy board options
-    for board_name in EnemyBoards.get_enemy_board_names():
-        var board_data = EnemyBoards.create_enemy_board(board_name)
-        enemy_board_selector.add_item(board_data.get("name", board_name))
-        
-    print("Enemy board selector populated with %d options" % enemy_board_selector.get_item_count())
-
-func connect_combat_ui_signals() -> void:
-    """Connect combat UI element signals"""
-    if start_combat_button:
-        start_combat_button.pressed.connect(_on_start_combat_button_pressed)
-        
-    if enemy_board_selector:
-        enemy_board_selector.item_selected.connect(_on_enemy_board_selected)
-        
-    print("Combat UI signals connected")
-
-func update_health_displays() -> void:
-    """Update health display labels"""
-    if player_health_label:
-        player_health_label.text = "Player Health: %d" % GameState.player_health
-        
-    if enemy_health_label:
-        enemy_health_label.text = "Enemy Health: %d" % GameState.enemy_health
+# Note: Combat UI functions moved to UIManager
 
 # Combat Screen Mode Management
 
@@ -908,9 +741,9 @@ func switch_to_shop_mode() -> void:
     _restore_original_player_board()
     
     # Reset battle selection display (clear previous combat log)
-    if combat_log_display:
-        combat_log_display.clear()
-        combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.clear()
+        ui_manager.combat_log_display.text = "[b]Next Battle[/b]\n\nSelect an enemy board and click 'Start Combat' to begin."
     
     # Update combat UI for shop mode
     _update_combat_ui_for_shop_mode()
@@ -997,66 +830,66 @@ func _show_hand_area() -> void:
 
 func _update_combat_ui_for_combat_mode() -> void:
     """Update combat UI elements for combat mode"""
-    if start_combat_button:
-        start_combat_button.visible = false
+    if ui_manager.start_combat_button:
+        ui_manager.start_combat_button.visible = false
     
-    if enemy_board_selector:
-        enemy_board_selector.get_parent().visible = false
+    if ui_manager.enemy_board_selector:
+        ui_manager.enemy_board_selector.get_parent().visible = false
     
     # Create return to shop button if it doesn't exist
-    if not return_to_shop_button:
-        return_to_shop_button = Button.new()
-        return_to_shop_button.name = "ReturnToShopButton"
-        return_to_shop_button.text = "Return to Shop"
-        apply_font_to_button(return_to_shop_button, UI_FONT_SIZE_MEDIUM)
-        combat_ui_container.add_child(return_to_shop_button)
-        return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
+    if not ui_manager.return_to_shop_button:
+        ui_manager.return_to_shop_button = Button.new()
+        ui_manager.return_to_shop_button.name = "ReturnToShopButton"
+        ui_manager.return_to_shop_button.text = "Return to Shop"
+        ui_manager.apply_font_to_button(ui_manager.return_to_shop_button, ui_manager.UI_FONT_SIZE_MEDIUM)
+        ui_manager.combat_ui_container.add_child(ui_manager.return_to_shop_button)
+        ui_manager.return_to_shop_button.pressed.connect(_on_return_to_shop_button_pressed)
     
     # Hide toggle button (no longer needed)
-    if combat_view_toggle_button:
-        combat_view_toggle_button.visible = false
+    if ui_manager.combat_view_toggle_button:
+        ui_manager.combat_view_toggle_button.visible = false
     
-    return_to_shop_button.visible = true
+    ui_manager.return_to_shop_button.visible = true
     
     # Make combat UI and log prominent and always visible
-    if combat_ui_container:
-        combat_ui_container.visible = true
+    if ui_manager.combat_ui_container:
+        ui_manager.combat_ui_container.visible = true
         
-    if combat_log_display:
-        combat_log_display.custom_minimum_size = Vector2(600, 300)
-        combat_log_display.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_MEDIUM)
-        combat_log_display.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_LARGE)
-        combat_log_display.visible = true
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.custom_minimum_size = Vector2(600, 300)
+        ui_manager.combat_log_display.add_theme_font_size_override("normal_font_size", ui_manager.UI_FONT_SIZE_MEDIUM)
+        ui_manager.combat_log_display.add_theme_font_size_override("bold_font_size", ui_manager.UI_FONT_SIZE_LARGE)
+        ui_manager.combat_log_display.visible = true
 
 func _update_combat_ui_for_shop_mode() -> void:
     """Update combat UI elements for shop mode"""
-    if start_combat_button:
-        start_combat_button.visible = true
+    if ui_manager.start_combat_button:
+        ui_manager.start_combat_button.visible = true
     
-    if enemy_board_selector:
-        enemy_board_selector.get_parent().visible = true
+    if ui_manager.enemy_board_selector:
+        ui_manager.enemy_board_selector.get_parent().visible = true
     
-    if combat_view_toggle_button:
-        combat_view_toggle_button.visible = false
+    if ui_manager.combat_view_toggle_button:
+        ui_manager.combat_view_toggle_button.visible = false
     
-    if return_to_shop_button:
-        return_to_shop_button.visible = false
+    if ui_manager.return_to_shop_button:
+        ui_manager.return_to_shop_button.visible = false
     
     # Keep combat UI container visible but minimize combat log during shop mode
-    if combat_ui_container:
-        combat_ui_container.visible = true
+    if ui_manager.combat_ui_container:
+        ui_manager.combat_ui_container.visible = true
         
-    if combat_log_display:
-        combat_log_display.custom_minimum_size = Vector2(400, 200)
-        combat_log_display.visible = true  # Keep visible for "Next Battle" display
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.custom_minimum_size = Vector2(400, 200)
+        ui_manager.combat_log_display.visible = true  # Keep visible for "Next Battle" display
 
 # Combat Result Toggle View Functions
 
 func _show_combat_result_view() -> void:
     """Show the final combat result with surviving minions and tombstones"""
     # Hide combat log
-    if combat_log_display:
-        combat_log_display.visible = false
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.visible = false
     
     # Clear current enemy board display
     _clear_enemy_board_from_shop_area()
@@ -1070,8 +903,8 @@ func _show_combat_result_view() -> void:
 func _show_combat_log_view() -> void:
     """Show the combat log view (default)"""
     # Show combat log
-    if combat_log_display:
-        combat_log_display.visible = true
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.visible = true
     
     # Clear result view
     _clear_enemy_board_from_shop_area()
@@ -1345,15 +1178,15 @@ func _restore_original_player_board() -> void:
 
 func display_combat_log(action_log: Array) -> void:
     """Display combat actions in the combat log"""
-    if not combat_log_display:
+    if not ui_manager.combat_log_display:
         return
         
-    combat_log_display.clear()
-    combat_log_display.append_text("[b]BATTLE LOG[/b]\n\n")
+    ui_manager.combat_log_display.clear()
+    ui_manager.combat_log_display.append_text("[b]BATTLE LOG[/b]\n\n")
     
     for action in action_log:
         var log_line = format_combat_action(action)
-        combat_log_display.append_text(log_line + "\n")
+        ui_manager.combat_log_display.append_text(log_line + "\n")
 
 func format_combat_action(action: Dictionary) -> String:
     """Format a combat action for display"""
@@ -1403,11 +1236,11 @@ func format_combat_action(action: Dictionary) -> String:
 
 func _on_start_combat_button_pressed() -> void:
     """Handle start combat button press"""
-    if not enemy_board_selector:
+    if not ui_manager.enemy_board_selector:
         print("Error: Enemy board selector not available")
         return
         
-    var selected_index = enemy_board_selector.selected
+    var selected_index = ui_manager.enemy_board_selector.selected
     var board_names = EnemyBoards.get_enemy_board_names()
     
     if selected_index < 0 or selected_index >= board_names.size():
@@ -1470,10 +1303,10 @@ func _on_end_turn_button_pressed() -> void:
 
 func _on_enemy_board_selected(index: int) -> void:
     """Handle enemy board selection from dropdown"""
-    if index < 0 or index >= enemy_board_selector.get_item_count():
+    if index < 0 or index >= ui_manager.enemy_board_selector.get_item_count():
         return
     
-    var selected_board = enemy_board_selector.get_item_text(index)
+    var selected_board = ui_manager.enemy_board_selector.get_item_text(index)
     current_enemy_board_name = selected_board
     
     # Update enemy health based on selected board
@@ -1482,8 +1315,7 @@ func _on_enemy_board_selected(index: int) -> void:
     
     print("Selected enemy board: %s (Health: %d)" % [board_data.get("name", selected_board), board_data.get("health", GameState.enemy_health)])
     
-    # Update health displays
-    update_health_displays()
+    # Update health displays (handled by UIManager automatically via signals)
 
 # Enhanced Combat Algorithm (Phase 2B.3)
 
