@@ -278,7 +278,7 @@ func _on_card_dropped(card):
         ["board", "board"]:
             _handle_board_reorder_drop(card)
         ["board", "hand"]:
-            _handle_board_to_hand_drop(card)
+            _handle_board_to_hand_drop(card)  # Now handles this as invalid
         ["shop", "board"], ["shop", "shop"], ["shop", "invalid"]:
             _handle_invalid_shop_drop(card)
         ["hand", "shop"], ["hand", "invalid"]:
@@ -390,19 +390,9 @@ func _handle_board_reorder_drop(card):
         $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
-    """Handle returning a minion from board to hand"""
-    # Check if hand has space
-    if is_hand_full():
-        print("Cannot return minion to hand - hand is full (", get_hand_size(), "/", ui_manager.max_hand_size, ")")
-        _return_card_to_board(card)
-        return
-    
-    # Move minion back to hand
-    card.reparent($MainLayout/PlayerHand)
-    
-    update_hand_count()
-    update_board_count()
-    print("Returned minion to hand")
+    """Handle invalid attempt to return a minion from board to hand"""
+    print("Cannot return minions from board to hand - this is not allowed")
+    _return_card_to_board(card)
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -514,11 +504,8 @@ func _update_drop_zone_feedback():
             # Valid minion reorder zone
             _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
         ["board", "hand"]:
-            # Valid return to hand zone
-            if not is_hand_full():
-                _highlight_container($MainLayout/PlayerHand, Color.MAGENTA)
-            else:
-                _highlight_container($MainLayout/PlayerHand, Color.RED)
+            # Invalid - minions cannot be returned to hand from board
+            _highlight_container($MainLayout/PlayerHand, Color.RED)
         ["shop", "board"], ["shop", "shop"]:
             # Invalid zones for shop cards
             _highlight_invalid_zone(current_drop_zone)
