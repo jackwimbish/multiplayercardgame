@@ -25,13 +25,10 @@ func _init(shop_area_ref: Container, ui_manager_ref: UIManager):
 	ui_manager = ui_manager_ref
 	
 	# Connect to GameState signals
-	GameState.shop_tier_changed.connect(_on_shop_tier_changed)
+	# Note: No longer auto-refresh on tier change - player controls when to refresh
 	
 	print("ShopManager initialized")
 
-func _on_shop_tier_changed(new_tier: int) -> void:
-	"""Handle shop tier changes from GameState"""
-	refresh_shop()
 
 
 
