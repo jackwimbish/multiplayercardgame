@@ -52,9 +52,41 @@ func setup_game_mode():
     """Setup game mode specific features"""
     print("Setting up game for mode: ", GameModeManager.get_mode_name())
     
+    # Add mode-specific UI indicators
+    add_mode_indicator()
+    
     # Add Return to Menu button for practice mode
     if GameModeManager.is_practice_mode():
         add_return_to_menu_button()
+
+func add_mode_indicator():
+    """Add a mode indicator to show current game mode"""
+    # Get the top UI container
+    var top_ui = ui_manager.get_node("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container")
+        return
+    
+    # Create mode indicator label
+    var mode_label = Label.new()
+    mode_label.name = "ModeIndicator"
+    mode_label.text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    mode_label.size_flags_horizontal = Control.SIZE_SHRINK_END
+    
+    # Style the label
+    ui_manager.apply_font_to_label(mode_label, ui_manager.UI_FONT_SIZE_SMALL)
+    
+    # Set color based on mode
+    if GameModeManager.is_practice_mode():
+        mode_label.add_theme_color_override("font_color", Color.CYAN)
+    else:
+        mode_label.add_theme_color_override("font_color", Color.ORANGE)
+    
+    # Add to top UI at the beginning
+    top_ui.add_child(mode_label)
+    top_ui.move_child(mode_label, 0)
+    
+    print("Mode indicator added: ", mode_label.text)
 
 func add_return_to_menu_button():
     """Add a Return to Menu button to the UI"""
