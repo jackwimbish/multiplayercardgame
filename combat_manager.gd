@@ -966,8 +966,10 @@ func _run_multiplayer_combat_simulation(player1_id: int, player1_board: Array, p
                 player1_damage = DEFAULT_COMBAT_DAMAGE
             # If it's a tie, no damage
     
-    # Broadcast results
-    NetworkManager.sync_combat_results.rpc(combat_log, player1_damage, player2_damage)
+    print("Combat simulation complete - Player1 (", player1_name, ") takes ", player1_damage, " damage, Player2 (", player2_name, ") takes ", player2_damage, " damage")
+    
+    # Broadcast results with explicit player IDs
+    NetworkManager.sync_combat_results_v2.rpc(combat_log, player1_id, player1_damage, player2_id, player2_damage)
 
 func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, player1_name: String, player2_name: String, rng: RandomNumberGenerator) -> Array:
     """Simulate combat between two player boards with deterministic RNG"""

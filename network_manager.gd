@@ -379,17 +379,43 @@ func sync_combat_results(combat_log: Array, player1_damage: int, player2_damage:
     """Broadcast combat results to all players"""
     print("NetworkManager: Combat results - P1 damage: ", player1_damage, ", P2 damage: ", player2_damage)
     
-    # Apply damage on all clients
+    # Apply damage on all clients using explicit player IDs
+    # Remember: player1 is always the host (see start_multiplayer_combat)
     if player1_damage > 0:
         if GameState.players.has(GameState.host_player_id):
+            print("NetworkManager: Applying ", player1_damage, " damage to host player (ID: ", GameState.host_player_id, ")")
             GameState.players[GameState.host_player_id].player_health -= player1_damage
     
-    if player2_damage > 0:
-        var opponent = GameState.get_opponent_player()
-        if opponent:
-            opponent.player_health -= player2_damage
+    # Find the non-host player ID
+    var client_player_id = -1
+    for player_id in GameState.players.keys():
+        if player_id != GameState.host_player_id:
+            client_player_id = player_id
+            break
+    
+    if player2_damage > 0 and client_player_id != -1:
+        if GameState.players.has(client_player_id):
+            print("NetworkManager: Applying ", player2_damage, " damage to client player (ID: ", client_player_id, ")")
+            GameState.players[client_player_id].player_health -= player2_damage
     
     # Emit signal for UI update
+    combat_results_received.emit(combat_log, player1_damage, player2_damage)
+
+@rpc("authority", "call_local", "reliable")
+func sync_combat_results_v2(combat_log: Array, player1_id: int, player1_damage: int, player2_id: int, player2_damage: int):
+    """Broadcast combat results with explicit player IDs to avoid confusion"""
+    print("NetworkManager: Combat results v2 - Player ", player1_id, " takes ", player1_damage, " damage, Player ", player2_id, " takes ", player2_damage, " damage")
+    
+    # Apply damage to specific players
+    if player1_damage > 0 and GameState.players.has(player1_id):
+        print("NetworkManager: Applying ", player1_damage, " damage to player ", player1_id, " (", GameState.players[player1_id].player_name, ")")
+        GameState.players[player1_id].player_health -= player1_damage
+    
+    if player2_damage > 0 and GameState.players.has(player2_id):
+        print("NetworkManager: Applying ", player2_damage, " damage to player ", player2_id, " (", GameState.players[player2_id].player_name, ")")
+        GameState.players[player2_id].player_health -= player2_damage
+    
+    # Emit signal for UI update - now the UI will need to determine which damage belongs to which player
     combat_results_received.emit(combat_log, player1_damage, player2_damage)
 
 # === UTILITY FUNCTIONS ===
