@@ -603,8 +603,9 @@ func _deal_new_shops_for_all_players():
         var shop_size = 3 + player.shop_tier
         GameState.deal_cards_to_shop(player_id, shop_size)
         
-        # Update gold for new turn
-        player.current_gold = min(player.player_base_gold + GameState.current_turn - 1, GameState.GLOBAL_GOLD_MAX)
+        # Gold is already updated by GameState.start_new_turn() called in advance_turn()
+        # Just ensure the player state has the correct gold value
+        print("Player ", player_id, " gold after turn advance: ", player.current_gold)
     
     # Sync all player states
     for player_id in GameState.players.keys():

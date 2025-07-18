@@ -63,12 +63,20 @@ func return_to_shop() -> void:
     switch_to_shop_mode()
     
     # Start next turn after combat (increments turn, refreshes gold)
-    GameState.start_new_turn()
-    
-    # Auto-refresh shop for new turn (respecting freeze in Phase 2)
-    if shop_manager:
-        shop_manager.refresh_shop()
-        print("Shop auto-refreshed for turn %d" % GameState.current_turn)
+    if GameModeManager.is_in_multiplayer_session():
+        # In multiplayer, only host can advance turn
+        if NetworkManager.is_host:
+            print("Host advancing turn after combat")
+            NetworkManager.advance_turn.rpc()
+        # Note: Shop refresh will happen automatically via the turn advancement
+    else:
+        # Practice mode: advance turn directly
+        GameState.start_new_turn()
+        
+        # Auto-refresh shop for new turn (respecting freeze in Phase 2)
+        if shop_manager:
+            shop_manager.refresh_shop()
+            print("Shop auto-refreshed for turn %d" % GameState.current_turn)
 
 func handle_enemy_board_selection(index: int) -> void:
     """Handle enemy board selection from dropdown"""
