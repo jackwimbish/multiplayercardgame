@@ -33,6 +33,12 @@ var combat_ui_container: VBoxContainer
 var return_to_shop_button: Button
 var combat_view_toggle_button: Button
 
+# Flash message system
+var flash_message_overlay: CanvasLayer
+var flash_message_container: PanelContainer
+var flash_message_label: Label
+var flash_message_tween: Tween
+
 # Game limits for UI display
 var max_hand_size: int = 10
 var max_board_size: int = 7
@@ -46,6 +52,7 @@ func setup_ui():
     """Initialize all UI elements and styling"""
     apply_ui_font_sizing()
     create_combat_ui()
+    create_flash_message_system()
     populate_enemy_board_selector()
     connect_combat_ui_signals()
     connect_shop_ui_signals()
@@ -214,6 +221,31 @@ func get_shop_container() -> Container:
     """Return the shop container for direct access"""
     return shop_area
 
+# === FLASH MESSAGE SYSTEM ===
+
+func show_flash_message(message: String, duration: float = 2.5) -> void:
+    """Show a temporary toast-style flash message to the player"""
+    if not flash_message_container or not flash_message_label:
+        print("Flash message system not initialized")
+        return
+    
+    # Stop any existing tween
+    if flash_message_tween:
+        flash_message_tween.kill()
+    
+    # Set up the message
+    flash_message_label.text = message
+    flash_message_container.modulate = Color.WHITE
+    flash_message_container.visible = true
+    
+    # Create and configure tween for fade out
+    flash_message_tween = create_tween()
+    flash_message_tween.tween_interval(duration - 0.5)  # Show for most of duration
+    flash_message_tween.tween_property(flash_message_container, "modulate", Color.TRANSPARENT, 0.5)
+    flash_message_tween.tween_callback(func(): flash_message_container.visible = false)
+    
+    print("Toast message: ", message)
+
 # === EVENT FORWARDING FOR CARD INTERACTIONS ===
 
 func _on_card_clicked(card_node):
@@ -299,6 +331,83 @@ func create_combat_ui() -> void:
     combat_ui_container.add_child(combat_log_display)
     
     print("Combat UI created successfully")
+
+func create_flash_message_system() -> void:
+    """Create toast-style flash message system with rounded background and shadow"""
+    # Create independent CanvasLayer for overlay messages
+    flash_message_overlay = CanvasLayer.new()
+    flash_message_overlay.name = "FlashMessageOverlay"
+    flash_message_overlay.layer = 1  # Appear above main UI (layer 0)
+    
+    # Create container for toast-style background
+    flash_message_container = PanelContainer.new()
+    flash_message_container.name = "FlashMessageContainer"
+    flash_message_container.visible = false
+    flash_message_container.mouse_filter = Control.MOUSE_FILTER_IGNORE  # Don't block clicks
+    
+    # Style the container with rounded background and shadow
+    _create_toast_style_background()
+    
+    # Position container at bottom center
+    flash_message_container.anchors_preset = Control.PRESET_CENTER_BOTTOM
+    flash_message_container.anchor_top = 0.85
+    flash_message_container.anchor_bottom = 0.85  # Single point anchor
+    flash_message_container.anchor_left = 0.5
+    flash_message_container.anchor_right = 0.5
+    flash_message_container.offset_left = -200  # Half width for centering
+    flash_message_container.offset_right = 200   # Half width for centering
+    flash_message_container.offset_top = -25     # Height for container
+    flash_message_container.offset_bottom = 25
+    
+    # Create flash message label
+    flash_message_label = Label.new()
+    flash_message_label.name = "FlashMessageLabel"
+    flash_message_label.text = ""
+    flash_message_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    # Style the text
+    apply_font_to_label(flash_message_label, UI_FONT_SIZE_MEDIUM)
+    flash_message_label.add_theme_color_override("font_color", Color.WHITE)
+    flash_message_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    flash_message_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+    
+    # Add label to container, container to overlay, overlay to scene
+    flash_message_container.add_child(flash_message_label)
+    flash_message_overlay.add_child(flash_message_container)
+    get_tree().current_scene.add_child.call_deferred(flash_message_overlay)
+    
+    # Tween will be created when needed (Godot 4.4 style)
+    flash_message_tween = null
+    
+    print("Toast-style flash message system created")
+
+func _create_toast_style_background() -> void:
+    """Create the styled background for toast messages"""
+    # Create a StyleBoxFlat for the rounded background
+    var style_box = StyleBoxFlat.new()
+    
+    # Background color (dark semi-transparent)
+    style_box.bg_color = Color(0.1, 0.1, 0.1, 0.9)  # Dark background with transparency
+    
+    # Rounded corners for toast effect
+    style_box.corner_radius_top_left = 12
+    style_box.corner_radius_top_right = 12
+    style_box.corner_radius_bottom_left = 12
+    style_box.corner_radius_bottom_right = 12
+    
+    # Padding for text breathing room
+    style_box.content_margin_left = 20
+    style_box.content_margin_right = 20
+    style_box.content_margin_top = 12
+    style_box.content_margin_bottom = 12
+    
+    # Shadow effect
+    style_box.shadow_color = Color(0, 0, 0, 0.5)  # Semi-transparent black shadow
+    style_box.shadow_size = 4
+    style_box.shadow_offset = Vector2(2, 2)
+    
+    # Apply the style to the container
+    flash_message_container.add_theme_stylebox_override("panel", style_box)
 
 func populate_enemy_board_selector() -> void:
     """Populate enemy board dropdown with available options"""

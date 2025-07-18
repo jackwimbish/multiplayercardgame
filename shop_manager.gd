@@ -208,7 +208,11 @@ func purchase_card(card_id: String) -> bool:
 		card_purchased.emit(card_id, cost)
 		
 		var card_data = CardDatabase.get_card_data(card_id)
-		print("Purchased ", card_data.get("name", "Unknown"), " for ", cost, " gold - Remaining in pool: ", GameState.card_pool[card_id])
+		var card_name = card_data.get("name", "Unknown")
+		print("Purchased ", card_name, " for ", cost, " gold - Remaining in pool: ", GameState.card_pool[card_id])
+		
+		# Show success message
+		ui_manager.show_flash_message("Purchased %s for %d gold!" % [card_name, cost], 1.5)
 		return true
 	
 	return false
@@ -218,13 +222,21 @@ func _handle_purchase_failure(card_id: String, result: Dictionary) -> void:
 	var card_data = CardDatabase.get_card_data(card_id)
 	var card_name = card_data.get("name", "Unknown")
 	
+	var flash_message = ""
 	match result.reason:
 		"insufficient_gold":
+			flash_message = "Not enough gold! Need %d gold, have %d" % [result.cost, GameState.current_gold]
 			print("Cannot afford ", card_name, " - costs ", result.cost, " gold, have ", GameState.current_gold)
 		"hand_full":
+			flash_message = "Hand is full! (%d/%d cards)" % [ui_manager.get_hand_size(), ui_manager.max_hand_size]
 			print("Cannot purchase ", card_name, " - hand is full (", ui_manager.get_hand_size(), "/", ui_manager.max_hand_size, ")")
 		"not_available":
+			flash_message = "Card no longer available!"
 			print("Card ", card_name, " no longer available in pool")
+	
+	# Show flash message to player
+	if flash_message != "":
+		ui_manager.show_flash_message(flash_message)
 
 func _add_card_to_hand_direct(card_id: String) -> void:
 	"""Add a card directly to hand (used by purchase system)"""
@@ -265,6 +277,7 @@ func refresh_shop_for_cost() -> bool:
 		if GameState.spend_gold(REFRESH_COST):
 			refresh_shop_complete()  # Manual refresh unfreezes all
 			print("Shop refreshed for %d gold (unfroze all)" % REFRESH_COST)
+			ui_manager.show_flash_message("Shop refreshed for %d gold!" % REFRESH_COST, 1.5)
 			return true
 	else:
 		print("Cannot afford shop refresh - need %d gold, have %d" % [REFRESH_COST, GameState.current_gold])
@@ -420,7 +433,11 @@ func handle_shop_card_purchase_by_drag(card: Node) -> bool:
 		card_purchased.emit(card_id, cost)
 		
 		var card_data = CardDatabase.get_card_data(card_id)
-		print("Purchased ", card_data.get("name", "Unknown"), " for ", cost, " gold - Remaining in pool: ", GameState.card_pool[card_id])
+		var card_name = card_data.get("name", "Unknown")
+		print("Purchased ", card_name, " for ", cost, " gold - Remaining in pool: ", GameState.card_pool[card_id])
+		
+		# Show success message
+		ui_manager.show_flash_message("Purchased %s for %d gold!" % [card_name, cost], 1.5)
 		return true
 	
 	return false 

@@ -28,7 +28,7 @@ func _ready():
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
-    
+
     # Initialize CombatManager with ShopManager reference for auto-refresh
     combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, shop_manager)
     
