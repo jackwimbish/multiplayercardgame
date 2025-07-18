@@ -47,6 +47,7 @@ func _ready():
     print("UIManager initialized")
     setup_ui()
     connect_gamestate_signals()
+    register_drag_drop_zones()
 
 func setup_ui():
     """Initialize all UI elements and styling"""
@@ -439,4 +440,8 @@ func connect_shop_ui_signals():
     """Connect shop UI element signals to game_board functions"""
     # Note: Shop button signals are connected in game_board.tscn, not here
     # This function is kept for consistency but no longer connects signals
-    print("Shop UI signals connected in scene file") 
+    print("Shop UI signals connected in scene file")
+
+func register_drag_drop_zones():
+    """Register UI zones with the DragDropManager for drag-and-drop operations"""
+    DragDropManager.register_ui_zones(player_hand, player_board, shop_area) 
