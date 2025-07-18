@@ -59,24 +59,26 @@ func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
     print("Returning to shop from combat")
     
-    # Return to shop mode
-    switch_to_shop_mode()
-    
-    # Start next turn after combat (increments turn, refreshes gold)
     if GameModeManager.is_in_multiplayer_session():
-        # In multiplayer, only host can advance turn
+        # In multiplayer, only host can advance turn and change phase
         if NetworkManager.is_host:
-            print("Host advancing turn after combat")
-            NetworkManager.advance_turn.rpc()
-        # Note: Shop refresh will happen automatically via the turn advancement
+            print("Host advancing turn and returning to shop after combat")
+            # Use the combined RPC to advance turn and change phase atomically
+            NetworkManager.advance_turn_and_return_to_shop.rpc()
+        else:
+            # Clients just wait for the turn advancement and phase change from host
+            print("Client waiting for host to advance turn and change phase")
     else:
-        # Practice mode: advance turn directly
+        # Practice mode: advance turn directly then switch
         GameState.start_new_turn()
         
         # Auto-refresh shop for new turn (respecting freeze in Phase 2)
         if shop_manager:
             shop_manager.refresh_shop()
             print("Shop auto-refreshed for turn %d" % GameState.current_turn)
+        
+        # Now switch to shop mode
+        switch_to_shop_mode()
 
 func handle_enemy_board_selection(index: int) -> void:
     """Handle enemy board selection from dropdown"""
@@ -813,5 +815,8 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         
         # Restore hand area
         _show_hand_area()
+        
+        # Update displays - turn has already advanced so values should be correct
+        ui_manager.update_all_game_displays()
         
         mode_switched.emit("shop") 

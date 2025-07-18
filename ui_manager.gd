@@ -127,10 +127,18 @@ func update_gold_display(new_gold: int, max_gold: int):
 func update_gold_display_detailed():
     """Update gold display with full current state - replaces game_board direct access"""
     if gold_label:
-        var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
-        if GameState.bonus_gold > 0:
-            gold_text += " (+" + str(GameState.bonus_gold) + ")"
-        gold_label.text = gold_text
+        var local_player = GameState.get_local_player()
+        if local_player:
+            var gold_text = "Gold: " + str(local_player.current_gold) + "/" + str(local_player.player_base_gold)
+            if local_player.bonus_gold > 0:
+                gold_text += " (+" + str(local_player.bonus_gold) + ")"
+            gold_label.text = gold_text
+        else:
+            # Fallback for practice mode
+            var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
+            if GameState.bonus_gold > 0:
+                gold_text += " (+" + str(GameState.bonus_gold) + ")"
+            gold_label.text = gold_text
 
 func update_shop_tier_display(new_tier: int):
     """Update shop tier label and upgrade button"""
@@ -146,15 +154,26 @@ func update_shop_tier_display(new_tier: int):
 
 func update_shop_tier_display_detailed():
     """Update shop tier and upgrade button with current state - replaces game_board direct access"""
+    var local_player = GameState.get_local_player()
+    
     if shop_tier_label:
-        shop_tier_label.text = "Shop Tier: " + str(GameState.shop_tier)
+        var tier = local_player.shop_tier if local_player else GameState.shop_tier
+        shop_tier_label.text = "Shop Tier: " + str(tier)
     
     if upgrade_button:
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if upgrade_cost > 0:
-            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+        if local_player:
+            var upgrade_cost = local_player.current_tavern_upgrade_cost
+            if local_player.shop_tier < 6 and upgrade_cost > 0:
+                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+            else:
+                upgrade_button.text = "Max Tier"
         else:
-            upgrade_button.text = "Max Tier"
+            # Fallback for practice mode
+            var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+            if upgrade_cost > 0:
+                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+            else:
+                upgrade_button.text = "Max Tier"
 
 func update_hand_display():
     """Update hand count display"""

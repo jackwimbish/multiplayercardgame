@@ -261,8 +261,21 @@ func sync_player_state(player_id: int, player_data: Dictionary):
     if GameState.players.has(player_id):
         var player = GameState.players[player_id]
         var old_shop = player.shop_cards.duplicate()
+        var old_gold = player.current_gold
         player.from_dict(player_data)
         print("NetworkManager: Updated player ", player_id, " shop from ", old_shop, " to ", player.shop_cards)
+        print("NetworkManager: Updated player ", player_id, " gold from ", old_gold, " to ", player.current_gold)
+        
+        # If this is the local player, force UI update for gold and shop tier
+        # This ensures the display updates even if the signal connection isn't working
+        if player_id == local_player_id:
+            var game_board = get_tree().get_first_node_in_group("game_board")
+            if game_board and game_board.ui_manager:
+                if old_gold != player.current_gold:
+                    print("NetworkManager: Local player gold changed, forcing UI update")
+                    game_board.ui_manager.update_gold_display_detailed()
+                # Also update shop tier display in case upgrade cost changed
+                game_board.ui_manager.update_shop_tier_display_detailed()
     else:
         # Create new player from data
         var new_player = PlayerState.new()
@@ -290,6 +303,24 @@ func advance_turn():
     
     # Deal new shop cards for all players
     _deal_new_shops_for_all_players()
+
+@rpc("authority", "call_local", "reliable")
+func advance_turn_and_return_to_shop():
+    """Advance turn and return to shop phase after combat (host authority)"""
+    print("NetworkManager: Advancing turn and returning to shop")
+    
+    # First advance the turn
+    GameState.start_new_turn()
+    
+    # Reset all players' end turn status
+    for player in GameState.players.values():
+        player.has_ended_turn = false
+    
+    # Deal new shop cards for all players
+    _deal_new_shops_for_all_players()
+    
+    # Then change phase to shop
+    sync_phase_change.rpc(GameState.GameMode.SHOP)
 
 # === UTILITY FUNCTIONS ===
 
