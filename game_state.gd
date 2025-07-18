@@ -219,6 +219,17 @@ func initialize_card_pool():
     
     print("Shared card pool initialized (shop cards only): ", shared_card_pool)
 
+# === SHOP SIZE AND TIER LOGIC ===
+
+func get_shop_size_for_tier(tier: int) -> int:
+    """Get number of cards shown in shop for given tier"""
+    match tier:
+        1: return 3
+        2, 3: return 4  
+        4, 5: return 5
+        6: return 6
+        _: return 3  # Default fallback
+
 # === SHARED CARD POOL MANAGEMENT ===
 
 func deal_cards_to_shop(player_id: int, num_cards: int) -> Array:
@@ -291,7 +302,7 @@ func _deal_initial_shops_for_all_players():
     """Deal initial shop cards for all players at game start"""
     for player_id in players.keys():
         var player = players[player_id]
-        var shop_size = 3 + player.shop_tier  # Base 3 + tier bonus
+        var shop_size = get_shop_size_for_tier(player.shop_tier)
         deal_cards_to_shop(player_id, shop_size)
     
     print("GameState: Initial shops dealt for all players")

@@ -61,15 +61,7 @@ func _on_game_mode_changed(new_mode: GameState.GameMode):
 
 
 # === SHOP SIZE AND TIER LOGIC ===
-
-func get_shop_size_for_tier(tier: int) -> int:
-    """Get number of cards shown in shop for given tier"""
-    match tier:
-        1: return 3
-        2, 3: return 4  
-        4, 5: return 5
-        6: return 6
-        _: return 3  # Default fallback
+# Note: get_shop_size_for_tier() moved to GameState for central access
 
 # === CARD SELECTION LOGIC ===
 
@@ -138,7 +130,7 @@ func _refresh_shop_preserving_frozen() -> void:
         _add_card_to_shop(card_id)
     
     # Fill remaining slots with new random cards
-    var shop_size = get_shop_size_for_tier(GameState.shop_tier)
+    var shop_size = GameState.get_shop_size_for_tier(GameState.shop_tier)
     var slots_to_fill = shop_size - preserved_card_ids.size()
     
     for i in range(slots_to_fill):
@@ -174,7 +166,7 @@ func _update_shop_display(shop_card_ids: Array) -> void:
 
 func _populate_shop_with_new_cards() -> void:
     """Populate shop with new random cards for current tier"""
-    var shop_size = get_shop_size_for_tier(GameState.shop_tier)
+    var shop_size = GameState.get_shop_size_for_tier(GameState.shop_tier)
     print("Refreshing shop (tier ", GameState.shop_tier, ") with ", shop_size, " cards")
     
     # Add new random cards to shop

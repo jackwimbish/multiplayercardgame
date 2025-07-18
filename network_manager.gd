@@ -672,7 +672,7 @@ func validate_and_execute_refresh(player_id: int) -> bool:
     player.notify_gold_changed()  # Trigger signal for UI update
     
     # Deal new shop cards
-    var shop_size = 3 + player.shop_tier  # Basic shop size + tier bonus
+    var shop_size = GameState.get_shop_size_for_tier(player.shop_tier)
     GameState.deal_cards_to_shop(player_id, shop_size)
     player.notify_shop_changed()  # Trigger signal for UI update
     
@@ -757,7 +757,7 @@ func _deal_new_shops_for_all_players():
         GameState.return_cards_to_pool(player.shop_cards)
         
         # Deal new cards
-        var shop_size = 3 + player.shop_tier
+        var shop_size = GameState.get_shop_size_for_tier(player.shop_tier)
         GameState.deal_cards_to_shop(player_id, shop_size)
         
         print("    New shop cards: ", player.shop_cards)
