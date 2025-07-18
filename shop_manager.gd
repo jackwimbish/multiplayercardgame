@@ -226,6 +226,11 @@ func can_purchase_card(card_id: String) -> Dictionary:
 
 func purchase_card(card_id: String) -> bool:
     """Attempt to purchase a card, return success"""
+    # Check if player is eliminated
+    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+        print("Cannot purchase - player is eliminated")
+        return false
+    
     var purchase_check = can_purchase_card(card_id)
     
     if not purchase_check.can_purchase:
@@ -340,6 +345,11 @@ func can_refresh_shop() -> bool:
 
 func refresh_shop_for_cost() -> bool:
     """Refresh shop for the standard cost (unfreezes all cards)"""
+    # Check if player is eliminated
+    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+        print("Cannot refresh shop - player is eliminated")
+        return false
+    
     if not can_refresh_shop():
         print("Cannot afford shop refresh - need %d gold, have %d" % [REFRESH_COST, GameState.current_gold])
         return false
@@ -379,6 +389,11 @@ func can_upgrade_tavern() -> bool:
 
 func upgrade_tavern() -> bool:
     """Attempt to upgrade tavern tier"""
+    # Check if player is eliminated
+    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+        print("Cannot upgrade tavern - player is eliminated")
+        return false
+    
     if not GameState.can_upgrade_tavern():
         print("Tavern already at maximum tier (%d)" % GameState.shop_tier)
         return false

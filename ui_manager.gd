@@ -4,6 +4,7 @@ extends Control
 class_name UIManager
 
 # UI Font sizes (moved from game_board.gd)
+const UI_FONT_SIZE_TITLE = 32    # Title text for victory/loss screens
 const UI_FONT_SIZE_LARGE = 24    # Main labels, important text
 const UI_FONT_SIZE_MEDIUM = 20   # Secondary labels, buttons
 const UI_FONT_SIZE_SMALL = 16    # Supporting text
@@ -39,6 +40,11 @@ var flash_message_container: PanelContainer
 var flash_message_label: Label
 var flash_message_tween: Tween
 
+# Victory/Loss screen overlays
+var game_over_overlay: CanvasLayer
+var victory_screen: PanelContainer
+var loss_screen: PanelContainer
+
 # Game limits for UI display
 var max_hand_size: int = 10
 var max_board_size: int = 7
@@ -54,6 +60,7 @@ func setup_ui():
     apply_ui_font_sizing()
     create_combat_ui()
     create_flash_message_system()
+    create_game_over_overlays()
     populate_enemy_board_selector()
     connect_combat_ui_signals()
     connect_shop_ui_signals()
@@ -465,6 +472,173 @@ func create_flash_message_system() -> void:
     flash_message_tween = null
     
     print("Toast-style flash message system created")
+
+func create_game_over_overlays() -> void:
+    """Create victory and loss screen overlays"""
+    # Create the overlay layer
+    game_over_overlay = CanvasLayer.new()
+    game_over_overlay.name = "GameOverOverlay"
+    game_over_overlay.layer = 10  # Above everything else
+    add_child(game_over_overlay)
+    
+    # Create victory screen
+    victory_screen = _create_victory_screen()
+    game_over_overlay.add_child(victory_screen)
+    victory_screen.visible = false
+    
+    # Create loss screen
+    loss_screen = _create_loss_screen()
+    game_over_overlay.add_child(loss_screen)
+    loss_screen.visible = false
+    
+    print("Game over overlays created")
+
+func _create_victory_screen() -> PanelContainer:
+    """Create the victory screen overlay"""
+    var screen = PanelContainer.new()
+    screen.name = "VictoryScreen"
+    
+    # Full screen
+    screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    screen.mouse_filter = Control.MOUSE_FILTER_STOP  # Block input to game
+    
+    # Dark background
+    var style_box = StyleBoxFlat.new()
+    style_box.bg_color = Color(0.1, 0.15, 0.1, 0.95)  # Dark green tint
+    screen.add_theme_stylebox_override("panel", style_box)
+    
+    # Content container
+    var vbox = VBoxContainer.new()
+    vbox.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+    vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+    screen.add_child(vbox)
+    
+    # Victory title
+    var title = Label.new()
+    title.text = "VICTORY!"
+    title.add_theme_font_size_override("font_size", UI_FONT_SIZE_TITLE)
+    title.add_theme_color_override("font_color", Color.GOLD)
+    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    vbox.add_child(title)
+    
+    # Add spacing
+    var spacer1 = Control.new()
+    spacer1.custom_minimum_size.y = 40
+    vbox.add_child(spacer1)
+    
+    # Placement label
+    var placement_label = Label.new()
+    placement_label.name = "PlacementLabel"
+    placement_label.text = "1st Place"
+    placement_label.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    placement_label.add_theme_color_override("font_color", Color.WHITE)
+    placement_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    vbox.add_child(placement_label)
+    
+    # Add spacing
+    var spacer2 = Control.new()
+    spacer2.custom_minimum_size.y = 60
+    vbox.add_child(spacer2)
+    
+    # Return to menu button
+    var menu_button = Button.new()
+    menu_button.name = "ReturnToMenuButton"
+    menu_button.text = "Return to Menu"
+    menu_button.custom_minimum_size = Vector2(200, 50)
+    apply_font_to_button(menu_button, UI_FONT_SIZE_MEDIUM)
+    menu_button.pressed.connect(_on_return_to_menu_pressed)
+    vbox.add_child(menu_button)
+    
+    return screen
+
+func _create_loss_screen() -> PanelContainer:
+    """Create the loss screen overlay"""
+    var screen = PanelContainer.new()
+    screen.name = "LossScreen"
+    
+    # Full screen
+    screen.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    screen.mouse_filter = Control.MOUSE_FILTER_STOP  # Block input to game
+    
+    # Dark background
+    var style_box = StyleBoxFlat.new()
+    style_box.bg_color = Color(0.15, 0.1, 0.1, 0.95)  # Dark red tint
+    screen.add_theme_stylebox_override("panel", style_box)
+    
+    # Content container
+    var vbox = VBoxContainer.new()
+    vbox.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+    vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+    screen.add_child(vbox)
+    
+    # Loss title
+    var title = Label.new()
+    title.text = "DEFEATED"
+    title.add_theme_font_size_override("font_size", UI_FONT_SIZE_TITLE)
+    title.add_theme_color_override("font_color", Color.CRIMSON)
+    title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    vbox.add_child(title)
+    
+    # Add spacing
+    var spacer1 = Control.new()
+    spacer1.custom_minimum_size.y = 40
+    vbox.add_child(spacer1)
+    
+    # Placement label
+    var placement_label = Label.new()
+    placement_label.name = "PlacementLabel"
+    placement_label.text = "2nd Place"
+    placement_label.add_theme_font_size_override("font_size", UI_FONT_SIZE_LARGE)
+    placement_label.add_theme_color_override("font_color", Color.WHITE)
+    placement_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+    vbox.add_child(placement_label)
+    
+    # Add spacing
+    var spacer2 = Control.new()
+    spacer2.custom_minimum_size.y = 60
+    vbox.add_child(spacer2)
+    
+    # Return to menu button
+    var menu_button = Button.new()
+    menu_button.name = "ReturnToMenuButton"
+    menu_button.text = "Return to Menu"
+    menu_button.custom_minimum_size = Vector2(200, 50)
+    apply_font_to_button(menu_button, UI_FONT_SIZE_MEDIUM)
+    menu_button.pressed.connect(_on_return_to_menu_pressed)
+    vbox.add_child(menu_button)
+    
+    return screen
+
+func _on_return_to_menu_pressed() -> void:
+    """Handle return to menu button press"""
+    print("Return to menu pressed from game over screen")
+    GameModeManager.request_return_to_menu()
+
+func show_victory_screen(placement: int = 1) -> void:
+    """Show the victory screen with placement"""
+    if victory_screen:
+        var placement_label = victory_screen.find_child("PlacementLabel", true, false)
+        if placement_label:
+            placement_label.text = _get_placement_text(placement)
+        victory_screen.visible = true
+        print("Showing victory screen - ", _get_placement_text(placement))
+
+func show_loss_screen(placement: int) -> void:
+    """Show the loss screen with placement"""
+    if loss_screen:
+        var placement_label = loss_screen.find_child("PlacementLabel", true, false)
+        if placement_label:
+            placement_label.text = _get_placement_text(placement)
+        loss_screen.visible = true
+        print("Showing loss screen - ", _get_placement_text(placement))
+
+func _get_placement_text(placement: int) -> String:
+    """Convert placement number to text"""
+    match placement:
+        1: return "1st Place"
+        2: return "2nd Place"
+        3: return "3rd Place"
+        _: return str(placement) + "th Place"
 
 func _create_toast_style_background() -> void:
     """Create the styled background for toast messages"""

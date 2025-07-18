@@ -34,6 +34,8 @@ func _ready():
     # Note: UI setup is now handled by UIManager
     # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
     GameState.game_over.connect(_on_game_over)
+    GameState.player_eliminated.connect(_on_player_eliminated)
+    GameState.player_victorious.connect(_on_player_victorious)
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
@@ -157,6 +159,22 @@ func _on_return_to_menu_pressed():
 # === SIGNAL HANDLERS FOR GAMESTATE ===
 func _on_game_over(winner: String):
     print("Game Over! Winner: ", winner)
+
+func _on_player_eliminated(player_id: int, placement: int):
+    """Handle when a player is eliminated"""
+    print("Player ", player_id, " eliminated at ", placement, " place")
+    
+    # If it's the local player, show the loss screen
+    if player_id == GameState.local_player_id:
+        ui_manager.show_loss_screen(placement)
+
+func _on_player_victorious(player_id: int):
+    """Handle when a player wins"""
+    print("Player ", player_id, " is victorious!")
+    
+    # If it's the local player, show the victory screen
+    if player_id == GameState.local_player_id:
+        ui_manager.show_victory_screen(1)
 
 func _on_card_clicked(card_node):
     # Don't show card details if we're in combat mode
@@ -639,6 +657,8 @@ func format_combat_action(action: Dictionary) -> String:
                     return "Combat tied! (%s)" % reason
         "auto_loss":
             return "%s loses automatically (%s)" % [action.get("loser", "?"), action.get("reason", "?")]
+        "auto_win":
+            return "%s wins automatically (opponent eliminated)" % action.get("winner", "?")
         "turn_start":
             return "[b][color=cyan]Turn %d begins![/color][/b] Gold and shop refreshed." % action.get("turn", 0)
         "first_attacker":

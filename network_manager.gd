@@ -443,6 +443,9 @@ func sync_combat_results_v3(combat_log: Array, player1_id: int, player1_damage: 
     
     # Emit signal with final states for CombatManager to display
     combat_results_received_v2.emit(combat_log, player1_id, player1_damage, player2_id, player2_damage, final_states)
+    
+    # Check for eliminations after damage is applied
+    GameState.check_for_eliminations()
 
 # === UTILITY FUNCTIONS ===
 

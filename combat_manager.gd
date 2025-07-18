@@ -70,6 +70,15 @@ func start_multiplayer_combat() -> void:
     print("Player2 ID: ", player2.player_id, " Name: ", player2.player_name) 
     print("Player2 board_minions: ", player2.board_minions)
     
+    # Check if either player is eliminated - auto-win for the living player
+    var player1_eliminated = GameState.is_player_eliminated(player1.player_id)
+    var player2_eliminated = GameState.is_player_eliminated(player2.player_id)
+    
+    if player1_eliminated or player2_eliminated:
+        print("Auto-win detected - one player is eliminated")
+        _handle_auto_win(player1, player2, player1_eliminated, player2_eliminated)
+        return
+    
     # Generate deterministic seed for combat
     var combat_seed = Time.get_ticks_msec()
     
@@ -88,9 +97,55 @@ func start_multiplayer_combat() -> void:
     # Don't call switch_to_combat_mode here - let the phase change handle it
     # The combat display will be handled by _on_multiplayer_combat_started
 
+func _handle_auto_win(player1: PlayerState, player2: PlayerState, player1_eliminated: bool, player2_eliminated: bool) -> void:
+    """Handle auto-win when one player is eliminated"""
+    var winner_id: int
+    var loser_id: int
+    var winner_name: String
+    var loser_name: String
+    
+    if player1_eliminated:
+        winner_id = player2.player_id
+        loser_id = player1.player_id
+        winner_name = player2.player_name
+        loser_name = player1.player_name
+    else:
+        winner_id = player1.player_id
+        loser_id = player2.player_id
+        winner_name = player1.player_name
+        loser_name = player2.player_name
+    
+    print("Auto-win: ", winner_name, " wins against eliminated ", loser_name)
+    
+    # Create a simple combat log showing auto-win
+    var combat_log = [
+        {"type": "combat_start", "player_minions": 0, "enemy_minions": 0},
+        {"type": "auto_win", "winner": winner_name, "loser": loser_name, "reason": "opponent_eliminated"},
+        {"type": "combat_end", "winner": winner_name, "reason": "auto_win"}
+    ]
+    
+    # Change phase to combat to show results
+    NetworkManager.change_game_phase(GameState.GameMode.COMBAT)
+    
+    # Broadcast auto-win results (no damage, just log)
+    NetworkManager.sync_combat_results_v3.rpc(
+        combat_log,
+        player1.player_id,
+        0,  # No damage to player1
+        [],  # Empty board
+        player2.player_id,
+        0,  # No damage to player2
+        []   # Empty board
+    )
+
 func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
     print("Returning to shop from combat")
+    
+    # Check if the local player is eliminated - if so, don't return to shop
+    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+        print("Player is eliminated - staying on defeat screen")
+        return
     
     if GameModeManager.is_in_multiplayer_session():
         # In multiplayer, only host can advance turn and change phase
@@ -885,6 +940,11 @@ func pick_random_from_array(array: Array):
 func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
     """Handle game mode changes from network sync"""
     print("CombatManager: Game mode changed to ", GameState.GameMode.keys()[new_mode])
+    
+    # If player is eliminated, don't process mode changes
+    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+        print("CombatManager: Player is eliminated - ignoring mode change")
+        return
     
     # Update UI based on new mode
     if new_mode == GameState.GameMode.COMBAT:

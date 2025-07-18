@@ -9,6 +9,10 @@ var players: Dictionary = {}  # player_id -> PlayerState
 var host_player_id: int = 1
 var local_player_id: int = 0
 
+# Elimination tracking
+var eliminated_players: Array = []  # Array of player IDs in order of elimination
+var placement_counter: int = 0  # Counter for determining placement
+
 # Global Game State
 var current_turn: int = 1
 var current_mode: GameMode = GameMode.SHOP
@@ -96,6 +100,8 @@ signal player_health_changed(new_health: int)
 signal enemy_health_changed(new_health: int)
 signal game_over(winner: String)
 signal game_mode_changed(new_mode: GameMode)
+signal player_eliminated(player_id: int, placement: int)
+signal player_victorious(player_id: int)
 
 func _ready():
     print("GameState singleton initialized")
@@ -201,6 +207,85 @@ func remove_player(player_id: int):
         var player_name = players[player_id].player_name
         players.erase(player_id)
         print("GameState: Removed player ", player_id, " (", player_name, ")")
+
+# === ELIMINATION AND VICTORY TRACKING ===
+
+func check_for_eliminations() -> void:
+    """Check if any players have been eliminated (0 or less health)"""
+    if not GameModeManager.is_in_multiplayer_session():
+        return  # Only handle in multiplayer
+    
+    var newly_eliminated = []
+    
+    for player_id in players.keys():
+        var player = players[player_id]
+        if player.player_health <= 0 and player_id not in eliminated_players:
+            # Player has been eliminated
+            newly_eliminated.append(player_id)
+            eliminated_players.append(player_id)
+            placement_counter += 1
+            
+            # Calculate placement (total players - placement_counter + 1)
+            var total_players = players.size()
+            var placement = total_players - placement_counter + 1
+            
+            print("Player ", player_id, " (", player.player_name, ") eliminated - ", _get_placement_text(placement))
+            
+            # Emit elimination signal
+            player_eliminated.emit(player_id, placement)
+    
+    # After processing eliminations, check for victory
+    if newly_eliminated.size() > 0:
+        _check_for_victory()
+
+func _check_for_victory() -> void:
+    """Check if only one player remains with health > 0"""
+    var alive_players = []
+    
+    for player_id in players.keys():
+        var player = players[player_id]
+        if player.player_health > 0:
+            alive_players.append(player_id)
+    
+    if alive_players.size() == 1:
+        # We have a winner!
+        var winner_id = alive_players[0]
+        var winner = players[winner_id]
+        print("VICTORY! Player ", winner_id, " (", winner.player_name, ") wins!")
+        
+        # Emit victory signal
+        player_victorious.emit(winner_id)
+
+func is_player_eliminated(player_id: int) -> bool:
+    """Check if a player has been eliminated"""
+    return player_id in eliminated_players
+
+func get_player_placement(player_id: int) -> int:
+    """Get a player's placement (1st, 2nd, etc.)"""
+    if player_id in eliminated_players:
+        # Find their position in the elimination order
+        var elimination_index = eliminated_players.find(player_id)
+        var total_players = players.size()
+        return total_players - elimination_index
+    elif players.has(player_id) and players[player_id].player_health > 0:
+        # Still alive - check if they're the only one
+        var alive_count = 0
+        for p_id in players.keys():
+            if players[p_id].player_health > 0:
+                alive_count += 1
+        
+        if alive_count == 1:
+            return 1  # Winner!
+    
+    return -1  # Unknown/error
+
+func _get_placement_text(placement: int) -> String:
+    """Convert placement number to text"""
+    match placement:
+        1: return "1st Place"
+        2: return "2nd Place"
+        3: return "3rd Place"
+        _: return str(placement) + "th Place"
 
 # Initialize card pool (migrated from game_board.gd)
 func initialize_card_pool():
