@@ -471,6 +471,34 @@ func _clear_enemy_board_from_shop_area() -> void:
     for child in children_to_remove:
         child.queue_free()
 
+func _restore_player_board_appearance() -> void:
+    """Restore normal appearance to all minions on player board"""
+    var board_container = main_layout.get_node("PlayerBoard")
+    var children_to_remove = []
+    
+    # First, remove all result cards and dead minion cards
+    for child in board_container.get_children():
+        if (child.name.begins_with("PlayerResult_") or 
+            child.name.begins_with("PlayerDead_")):
+            children_to_remove.append(child)
+    
+    for child in children_to_remove:
+        child.queue_free()
+    
+    # Then, restore visibility and appearance of original minion cards
+    for child in board_container.get_children():
+        if child.name != "PlayerBoardLabel":
+            # Make original cards visible again
+            child.visible = true
+            
+            # Reset modulate to white (normal appearance)
+            child.modulate = Color.WHITE
+            
+            # Also restore health text color if it exists
+            var stats_label = child.find_child("CardStats", true, false)
+            if stats_label and stats_label is Label:
+                stats_label.remove_theme_color_override("font_color")
+
 func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array) -> void:
     """Display the opponent's board in multiplayer combat"""
     # Determine which board is the opponent's
@@ -890,6 +918,9 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         
         # Clear enemy cards from shop area BEFORE showing shop elements
         _clear_enemy_board_from_shop_area()
+        
+        # Restore normal appearance to all player board minions
+        _restore_player_board_appearance()
         
         # Show shop elements
         _show_shop_elements()
