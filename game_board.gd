@@ -75,6 +75,15 @@ func setup_game_mode():
     # Add Return to Menu button for practice mode
     if GameModeManager.is_practice_mode():
         add_return_to_menu_button()
+    
+    # Set initial combat UI visibility for multiplayer mode
+    if GameModeManager.is_in_multiplayer_session():
+        # In multiplayer, only host can start combat
+        if ui_manager.start_combat_button:
+            ui_manager.start_combat_button.visible = GameState.is_host()
+        # Hide enemy board selector in multiplayer
+        if ui_manager.enemy_board_selector:
+            ui_manager.enemy_board_selector.get_parent().visible = false
 
 func add_mode_indicator():
     """Add a mode indicator to show current game mode"""
