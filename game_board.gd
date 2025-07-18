@@ -540,7 +540,7 @@ func _update_drop_zone_feedback():
             _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
         ["board", "hand"]:
             # Invalid - minions cannot be returned to hand from board
-            _highlight_container($MainLayout/PlayerHand, Color.RED)
+                _highlight_container($MainLayout/PlayerHand, Color.RED)
         ["board", "shop"]:
             # Valid selling zone (only during shop phase)
             if GameState.current_mode == GameState.GameMode.SHOP:
@@ -749,6 +749,10 @@ func _on_return_to_shop_button_pressed() -> void:
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
     shop_manager.handle_refresh_button_pressed()
+
+func _on_freeze_button_pressed() -> void:
+    """Handle freeze button press"""
+    shop_manager.handle_freeze_button_pressed()
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""

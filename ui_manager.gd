@@ -14,6 +14,7 @@ const UI_FONT_SIZE_SMALL = 16    # Supporting text
 @onready var shop_tier_label = $TopUI/ShopTierLabel
 @onready var upgrade_button = $TopUI/UpgradeShopButton
 @onready var refresh_button = $TopUI/RefreshShopButton
+@onready var freeze_button = $TopUI/FreezeButton
 @onready var end_turn_button = $TopUI/EndTurnButton
 @onready var shop_area = $ShopArea
 @onready var shop_area_label = $ShopArea/ShopAreaLabel
@@ -148,6 +149,7 @@ func apply_ui_font_sizing() -> void:
     
     # Top UI buttons
     apply_font_to_button(refresh_button, UI_FONT_SIZE_MEDIUM)
+    apply_font_to_button(freeze_button, UI_FONT_SIZE_MEDIUM)
     apply_font_to_button(upgrade_button, UI_FONT_SIZE_MEDIUM)
     apply_font_to_button(end_turn_button, UI_FONT_SIZE_MEDIUM)
     
@@ -326,10 +328,6 @@ func connect_combat_ui_signals():
 
 func connect_shop_ui_signals():
     """Connect shop UI element signals to game_board functions"""
-    if refresh_button:
-        refresh_button.pressed.connect(get_parent()._on_refresh_shop_button_pressed)
-        
-    if upgrade_button:
-        upgrade_button.pressed.connect(get_parent()._on_upgrade_shop_button_pressed)
-        
-    print("Shop UI signals connected to game_board handlers") 
+    # Note: Shop button signals are connected in game_board.tscn, not here
+    # This function is kept for consistency but no longer connects signals
+    print("Shop UI signals connected in scene file") 
