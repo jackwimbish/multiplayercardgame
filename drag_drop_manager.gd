@@ -5,6 +5,7 @@ extends Node
 var dragged_card = null
 var origin_parent = null
 var origin_position = Vector2.ZERO
+var drag_offset = Vector2.ZERO
 
 # Zone containers - registered by UIManager at startup
 var hand_container: Container
@@ -24,7 +25,7 @@ func register_ui_zones(hand: Container, board: Container, shop: Container):
     shop_container = shop
     print("DragDropManager: UI zones registered")
 
-func start_drag(card_node):
+func start_drag(card_node, offset = Vector2.ZERO):
     """Start dragging a card"""
     if dragged_card:
         return # Already dragging something
@@ -32,6 +33,7 @@ func start_drag(card_node):
     dragged_card = card_node
     origin_parent = card_node.get_parent()
     origin_position = card_node.position
+    drag_offset = offset
     
     # Store the card's origin zone for drop handling
     var origin_zone = get_card_origin_zone(card_node)
@@ -71,12 +73,13 @@ func stop_drag():
     # Reset drag state
     dragged_card = null
     origin_parent = null
+    drag_offset = Vector2.ZERO
 
 func _unhandled_input(event):
     """Handle mouse input during drag operations"""
     if dragged_card:
         if event is InputEventMouseMotion:
-            dragged_card.global_position = event.global_position
+            dragged_card.global_position = event.global_position - drag_offset
             _update_drop_zone_feedback()
 
         if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:

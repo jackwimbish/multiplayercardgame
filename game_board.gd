@@ -25,6 +25,9 @@ func _ready():
     # Add to game_board group for CardFactory access
     add_to_group("game_board")
     
+    # Setup game mode specific features
+    setup_game_mode()
+    
     # Note: UI setup is now handled by UIManager
     # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
     GameState.game_over.connect(_on_game_over)
@@ -44,6 +47,77 @@ func _ready():
     
     # Initialize game systems
     shop_manager.refresh_shop()
+
+func setup_game_mode():
+    """Setup game mode specific features"""
+    print("Setting up game for mode: ", GameModeManager.get_mode_name())
+    
+    # Add mode-specific UI indicators
+    add_mode_indicator()
+    
+    # Add Return to Menu button for practice mode
+    if GameModeManager.is_practice_mode():
+        add_return_to_menu_button()
+
+func add_mode_indicator():
+    """Add a mode indicator to show current game mode"""
+    # Get the top UI container
+    var top_ui = ui_manager.get_node("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container")
+        return
+    
+    # Create mode indicator label
+    var mode_label = Label.new()
+    mode_label.name = "ModeIndicator"
+    mode_label.text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    mode_label.size_flags_horizontal = Control.SIZE_SHRINK_END
+    
+    # Style the label
+    ui_manager.apply_font_to_label(mode_label, ui_manager.UI_FONT_SIZE_SMALL)
+    
+    # Set color based on mode
+    if GameModeManager.is_practice_mode():
+        mode_label.add_theme_color_override("font_color", Color.CYAN)
+    else:
+        mode_label.add_theme_color_override("font_color", Color.ORANGE)
+    
+    # Add to top UI at the beginning
+    top_ui.add_child(mode_label)
+    top_ui.move_child(mode_label, 0)
+    
+    print("Mode indicator added: ", mode_label.text)
+
+func add_return_to_menu_button():
+    """Add a Return to Menu button to the UI"""
+    # Get the top UI container
+    var top_ui = ui_manager.get_node("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container")
+        return
+    
+    # Create return to menu button
+    var return_button = Button.new()
+    return_button.name = "ReturnToMenuButton"
+    return_button.text = "Return to Menu"
+    return_button.size_flags_horizontal = Control.SIZE_SHRINK_END
+    
+    # Style the button
+    ui_manager.apply_font_to_button(return_button, ui_manager.UI_FONT_SIZE_SMALL)
+    
+    # Connect signal
+    return_button.pressed.connect(_on_return_to_menu_pressed)
+    
+    # Add to top UI
+    top_ui.add_child(return_button)
+    top_ui.move_child(return_button, 0)  # Move to front
+    
+    print("Return to Menu button added")
+
+func _on_return_to_menu_pressed():
+    """Handle return to menu button press"""
+    print("Return to menu requested")
+    GameModeManager.request_return_to_menu()
 
 # === SIGNAL HANDLERS FOR GAMESTATE ===
 func _on_game_over(winner: String):
@@ -143,9 +217,9 @@ func add_card_to_hand(card_id):
 
 # detect_drop_zone, get_card_origin_zone, _set_all_cards_mouse_filter moved to DragDropManager
 
-func _on_card_drag_started(card):
+func _on_card_drag_started(card, offset = Vector2.ZERO):
     # Delegate to DragDropManager
-    DragDropManager.start_drag(card)
+    DragDropManager.start_drag(card, offset)
 
 func _on_card_drag_ended(card, origin_zone: String, drop_zone: String):
     """Handle card drop events from DragDropManager"""

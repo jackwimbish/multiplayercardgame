@@ -10,8 +10,8 @@ config_version=5
 
 [application]
 
-config/name="multiplayercardgame"
-run/main_scene="uid://bjl58tv46o1q6"
+config/name="OpenBattlefields"
+run/main_scene="res://main_menu.tscn"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 config/icon="res://icon.svg"
 
@@ -20,6 +20,9 @@ config/icon="res://icon.svg"
 GameState="*res://game_state.gd"
 CardFactory="*res://card_factory.gd"
 DragDropManager="*res://drag_drop_manager.gd"
+GameModeManager="*res://game_mode_manager.gd"
+SceneManager="*res://scene_manager.gd"
+SettingsManager="*res://settings_manager.gd"
 
 [display]
 

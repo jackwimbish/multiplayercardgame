@@ -50,7 +50,7 @@ func _gui_input(event):
             if drag_distance > DRAG_THRESHOLD_DISTANCE:
                 # Start drag
                 drag_offset = get_global_mouse_position() - global_position
-                drag_started.emit(self)
+                drag_started.emit(self, drag_offset)
                 is_being_dragged = true
 
 func setup_card_data(data: Dictionary):
