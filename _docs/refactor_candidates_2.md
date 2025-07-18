@@ -13,6 +13,14 @@ The goal is to further decouple game logic, UI interaction, and player input han
 - Connected to `UIManager` for zone registration
 - Successfully tested and working
 
+**Refactor Candidate #2: UI Decoupling** - **COMPLETED**
+- Removed all direct UI node access from `game_board.gd`
+- Enhanced `UIManager` with detailed update functions
+- Connected GameState signals directly to UIManager for automatic updates
+- Abstracted container access through UIManager getter functions
+- Replaced `update_ui_displays()` with `UIManager.update_all_game_displays()`
+- Successfully tested and working
+
 ---
 
 ### 1. Extract Drag-and-Drop Logic into a `DragDropManager`

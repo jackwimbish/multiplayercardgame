@@ -54,11 +54,10 @@ func _on_card_clicked(card_node):
     if GameState.current_mode == GameState.GameMode.COMBAT:
         return
         
-    var shop_area = $MainLayout/ShopArea
     var card_id = card_node.name  # Assuming card_node.name is the card ID
     
     # Check if this is a shop card and if we can afford it
-    if card_node.get_parent() == shop_area:
+    if ui_manager.is_card_in_shop(card_node):
         var card_data = CardDatabase.get_card_data(card_id)
         var cost = card_data.get("cost", 3)
         
@@ -101,7 +100,7 @@ func add_card_to_hand_direct(card_id: String):
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
     
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
 
 func add_generated_card_to_hand(card_id: String) -> bool:
@@ -120,7 +119,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started)
     
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
     
     print("Added generated card to hand: ", card_data.get("name", "Unknown"))
@@ -130,37 +129,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
 
 # calculate_base_gold_for_turn() and start_new_turn() now in GameState singleton
 
-func update_ui_displays():
-    """Update all UI elements to reflect current game state"""
-    # Update turn and gold displays (with null checks)
-    var turn_label = get_node_or_null("MainLayout/TopUI/TurnLabel")
-    if turn_label:
-        turn_label.text = "Turn: " + str(GameState.current_turn)
-    
-    var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
-    if GameState.bonus_gold > 0:
-        gold_text += " (+" + str(GameState.bonus_gold) + ")"
-    
-    var gold_label = get_node_or_null("MainLayout/TopUI/GoldLabel")
-    if gold_label:
-        gold_label.text = gold_text
-        
-    var shop_tier_label = get_node_or_null("MainLayout/TopUI/ShopTierLabel")
-    if shop_tier_label:
-        shop_tier_label.text = "Shop Tier: " + str(GameState.shop_tier)
-    
-    # Update upgrade button text with current cost
-    var upgrade_button = get_node_or_null("MainLayout/TopUI/UpgradeShopButton")
-    if upgrade_button:
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if upgrade_cost > 0:
-            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-        else:
-            upgrade_button.text = "Max Tier"
-    
-    # Update hand and board counts
-    update_hand_count()
-    update_board_count()
+# update_ui_displays removed - now handled by UIManager.update_all_game_displays()
 
 # All gold and tavern management functions moved to GameState singleton:
 # - spend_gold(), can_afford(), increase_base_gold(), add_bonus_gold(), gain_gold()
@@ -177,7 +146,7 @@ func add_card_to_hand(card_id):
     new_card.card_clicked.connect(_on_card_clicked)
     new_card.drag_started.connect(_on_card_drag_started) # Add this
     #new_card.dropped.connect(_on_card_dropped)
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count() # Update the hand count display
 
 # detect_drop_zone, get_card_origin_zone, _set_all_cards_mouse_filter moved to DragDropManager
@@ -228,7 +197,8 @@ func _handle_shop_to_hand_drop(card):
 
 func _handle_hand_reorder_drop(card):
     """Handle reordering cards within the hand"""
-    var cards_in_hand = $MainLayout/PlayerHand.get_children()
+    var hand_container = ui_manager.get_hand_container()
+    var cards_in_hand = hand_container.get_children()
     var new_index = -1
 
     # Find where to place the card based on its X position
@@ -238,14 +208,14 @@ func _handle_hand_reorder_drop(card):
             break
 
     # Put the card back into the hand container
-    card.reparent($MainLayout/PlayerHand)
+    card.reparent(hand_container)
 
     # Move it to the calculated position
     if new_index != -1:
-        $MainLayout/PlayerHand.move_child(card, new_index)
+        hand_container.move_child(card, new_index)
     else:
         # If it was dropped past the last card, move it to the end
-        $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
+        hand_container.move_child(card, hand_container.get_child_count() - 1)
 
 func _handle_hand_to_board_drop(card):
     """Handle playing a minion from hand to board"""
@@ -286,7 +256,8 @@ func _handle_invalid_hand_drop(card):
 
 func _handle_board_reorder_drop(card):
     """Handle reordering minions within the board"""
-    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var board_container = ui_manager.get_board_container()
+    var cards_on_board = board_container.get_children()
     var new_index = -1
 
     # Find where to place the minion based on its X position
@@ -299,14 +270,14 @@ func _handle_board_reorder_drop(card):
             break
 
     # Put the card back into the board container
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(board_container)
 
     # Move it to the calculated position
     if new_index != -1:
-        $MainLayout/PlayerBoard.move_child(card, new_index)
+        board_container.move_child(card, new_index)
     else:
         # If it was dropped past the last card, move it to the end
-        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+        board_container.move_child(card, board_container.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -342,7 +313,7 @@ func _handle_board_to_shop_drop(card):
     
     # Update displays
     update_board_count()
-    update_ui_displays()  # Update gold display
+    ui_manager.update_gold_display_detailed()  # Update gold display
     
     print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
@@ -366,15 +337,15 @@ func _return_card_to_origin(card, origin_zone: String):
 
 func _return_card_to_shop(card):
     """Return a card to the shop area"""
-    card.reparent($MainLayout/ShopArea)
+    card.reparent(ui_manager.get_shop_container())
 
 func _return_card_to_hand(card):
     """Return a card to the hand area"""
-    card.reparent($MainLayout/PlayerHand)
+    card.reparent(ui_manager.get_hand_container())
 
 func _return_card_to_board(card):
     """Return a card to the board area"""
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(ui_manager.get_board_container())
 
 # Note: _convert_shop_card_to_hand_card moved to ShopManager
 
@@ -388,7 +359,8 @@ func _find_card_data_by_name(card_name: String) -> Dictionary:
 
 func _play_minion_to_board(card):
     """Move a minion card from hand to board with proper positioning"""
-    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var board_container = ui_manager.get_board_container()
+    var cards_on_board = board_container.get_children()
     var new_index = -1
     
     # Find where to place the minion based on its X position
@@ -401,14 +373,14 @@ func _play_minion_to_board(card):
             break
     
     # Move card to board
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(board_container)
     
     # Position the card appropriately
     if new_index != -1:
-        $MainLayout/PlayerBoard.move_child(card, new_index)
+        board_container.move_child(card, new_index)
     else:
         # If dropped past the last card, move to end (but before label if it exists)
-        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+        board_container.move_child(card, board_container.get_child_count() - 1)
     
     # Update counts
     update_hand_count()

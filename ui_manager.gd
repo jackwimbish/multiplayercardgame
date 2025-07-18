@@ -68,8 +68,8 @@ func connect_gamestate_signals():
     """Connect to GameState signals for automatic UI updates"""
     GameState.turn_changed.connect(update_turn_display)
     GameState.turn_changed.connect(_on_turn_changed)  # Update upgrade cost on turn change
-    GameState.gold_changed.connect(update_gold_display)
-    GameState.shop_tier_changed.connect(update_shop_tier_display)
+    GameState.gold_changed.connect(_on_gold_changed)  # Use detailed gold update
+    GameState.shop_tier_changed.connect(_on_shop_tier_changed)  # Use wrapper for signal compatibility
     GameState.player_health_changed.connect(update_health_displays)
     GameState.enemy_health_changed.connect(update_health_displays)
     GameState.game_over.connect(_on_game_over)
@@ -84,6 +84,14 @@ func update_all_displays():
     update_hand_display()
     update_board_display()
     update_health_displays()
+
+func update_all_game_displays():
+    """Comprehensive UI update that replaces game_board.update_ui_displays()"""
+    update_turn_display(GameState.current_turn)
+    update_gold_display_detailed()
+    update_shop_tier_display_detailed()
+    update_hand_display()
+    update_board_display()
 
 func update_turn_display(new_turn: int):
     """Update turn label"""
@@ -100,6 +108,14 @@ func _on_turn_changed(new_turn: int):
         else:
             upgrade_button.text = "Max Tier"
 
+func _on_gold_changed(new_gold: int, max_gold: int):
+    """Handle gold changes with detailed display update"""
+    update_gold_display_detailed()
+
+func _on_shop_tier_changed(new_tier: int):
+    """Handle shop tier changes with detailed display update"""
+    update_shop_tier_display_detailed()
+
 func update_gold_display(new_gold: int, max_gold: int):
     """Update gold label with current/base gold and bonus"""
     if gold_label:
@@ -108,10 +124,30 @@ func update_gold_display(new_gold: int, max_gold: int):
             gold_text += " (+" + str(GameState.bonus_gold) + ")"
         gold_label.text = gold_text
 
+func update_gold_display_detailed():
+    """Update gold display with full current state - replaces game_board direct access"""
+    if gold_label:
+        var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
+        if GameState.bonus_gold > 0:
+            gold_text += " (+" + str(GameState.bonus_gold) + ")"
+        gold_label.text = gold_text
+
 func update_shop_tier_display(new_tier: int):
     """Update shop tier label and upgrade button"""
     if shop_tier_label:
         shop_tier_label.text = "Shop Tier: " + str(new_tier)
+    
+    if upgrade_button:
+        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+        if upgrade_cost > 0:
+            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+        else:
+            upgrade_button.text = "Max Tier"
+
+func update_shop_tier_display_detailed():
+    """Update shop tier and upgrade button with current state - replaces game_board direct access"""
+    if shop_tier_label:
+        shop_tier_label.text = "Shop Tier: " + str(GameState.shop_tier)
     
     if upgrade_button:
         var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
@@ -221,6 +257,14 @@ func get_hand_container() -> Container:
 func get_shop_container() -> Container:
     """Return the shop container for direct access"""
     return shop_area
+
+func get_board_container() -> Container:
+    """Return the board container for direct access"""
+    return player_board
+
+func is_card_in_shop(card_node: Node) -> bool:
+    """Check if a card is in the shop area"""
+    return card_node.get_parent() == shop_area
 
 # === FLASH MESSAGE SYSTEM ===
 
