@@ -238,8 +238,9 @@ func update_board_state(player_id: int, board_minions: Array):
         if GameState.players.has(player_id):
             var player = GameState.players[player_id]
             player.board_minions = board_minions
-            # Sync the updated state to all clients
-            sync_player_state.rpc(player_id, player.to_dict())
+            # Sync ONLY the board state, not the entire player state
+            # This prevents unnecessary shop refreshes
+            sync_board_state_only.rpc(player_id, board_minions)
         else:
             print("NetworkManager: Player ", player_id, " not found for board update")
 
@@ -307,6 +308,18 @@ func sync_card_pool(pool_data: Dictionary):
     """Sync shared card pool across all clients"""
     print("NetworkManager: Syncing shared card pool")
     GameState.shared_card_pool = pool_data
+
+@rpc("authority", "call_local", "reliable")
+func sync_board_state_only(player_id: int, board_minions: Array):
+    """Sync only board state without triggering shop refresh"""
+    print("NetworkManager: Syncing board state only for player ", player_id, " - Minions: ", board_minions)
+    
+    if GameState.players.has(player_id):
+        var player = GameState.players[player_id]
+        player.board_minions = board_minions
+        # Don't call from_dict or emit any signals - just update the board array
+    else:
+        print("NetworkManager: Player ", player_id, " not found for board sync")
 
 @rpc("authority", "call_local", "reliable")
 func advance_turn():
