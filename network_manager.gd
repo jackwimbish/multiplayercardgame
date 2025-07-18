@@ -55,7 +55,9 @@ func create_host_game(port: int = DEFAULT_PORT) -> bool:
     is_host = true
     is_connected = true
     server_port = port
-    local_player_id = 1  # Host is always ID 1
+    local_player_id = multiplayer.get_unique_id()  # Get actual peer ID
+    
+    print("NetworkManager: Host created - local_player_id: ", local_player_id, ", is_host: ", is_host)
     
     # Add host to connected players
     var host_player = PlayerState.new()
@@ -165,9 +167,9 @@ func request_purchase_card(player_id: int, card_id: String, shop_slot: int):
     """Request to purchase a card from shop"""
     print("NetworkManager: Purchase request - Player: ", player_id, " Card: ", card_id)
     
-    # Only host validates purchases
+    # Only server validates purchases
     if is_host:
-        var success = _validate_and_execute_purchase(player_id, card_id, shop_slot)
+        var success = validate_and_execute_purchase(player_id, card_id, shop_slot)
         sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
         
         if success:
@@ -177,12 +179,20 @@ func request_purchase_card(player_id: int, card_id: String, shop_slot: int):
 @rpc("any_peer", "call_remote", "reliable") 
 func request_refresh_shop(player_id: int):
     """Request to refresh player's shop"""
-    print("NetworkManager: Refresh shop request - Player: ", player_id)
+    var sender_id = multiplayer.get_remote_sender_id()
+    var my_id = multiplayer.get_unique_id()
+    print("NetworkManager: Refresh shop request - Player: ", player_id, ", Sender: ", sender_id, ", My ID: ", my_id, ", is_host: ", is_host)
     
+    # Only process on the server/host - use is_host instead of multiplayer.is_server()
+    # because multiplayer.is_server() returns false in RPC context
     if is_host:
-        _validate_and_execute_refresh(player_id)
+        print("NetworkManager: Server executing refresh for player ", player_id)
+        validate_and_execute_refresh(player_id)
+        print("NetworkManager: About to sync player state for player ", player_id)
         sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
         sync_card_pool.rpc(GameState.shared_card_pool)
+    else:
+        print("NetworkManager: Client received refresh request - ignoring (should not happen with proper RPC setup)")
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_upgrade_shop(player_id: int):
@@ -190,26 +200,26 @@ func request_upgrade_shop(player_id: int):
     print("NetworkManager: Upgrade shop request - Player: ", player_id)
     
     if is_host:
-        _validate_and_execute_upgrade(player_id)
+        validate_and_execute_upgrade(player_id)
         sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
 
-@rpc("any_peer", "call_remote", "reliable")
+@rpc("any_peer", "call_local", "reliable")
 func request_sell_minion(player_id: int, card_id: String):
     """Request to sell a minion back to the pool"""
     print("NetworkManager: Sell minion request - Player: ", player_id, " Card: ", card_id)
     
     if is_host:
-        _validate_and_execute_sell(player_id, card_id)
+        validate_and_execute_sell(player_id, card_id)
         sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
         sync_card_pool.rpc(GameState.shared_card_pool)
 
-@rpc("any_peer", "call_remote", "reliable")
+@rpc("any_peer", "call_local", "reliable")
 func request_end_turn(player_id: int):
     """Request to end turn for a player"""
     print("NetworkManager: End turn request - Player: ", player_id)
     
     if is_host:
-        _validate_and_execute_end_turn(player_id)
+        validate_and_execute_end_turn(player_id)
         # Check if both players have ended turn
         if _all_players_ended_turn():
             advance_turn.rpc()
@@ -222,13 +232,13 @@ func request_phase_change(new_phase: GameState.GameMode):
     var sender_id = multiplayer.get_remote_sender_id()
     print("NetworkManager: Phase change requested to ", GameState.GameMode.keys()[new_phase], " from peer ", sender_id)
     
-    # Only host can change phases
+    # Only server can change phases
     if is_host:
-        print("NetworkManager: Host processing phase change request")
+        print("NetworkManager: Server processing phase change request")
         # Broadcast phase change to all players (including host)
         sync_phase_change.rpc(new_phase)
     else:
-        print("NetworkManager: Non-host received phase change request - ignoring")
+        print("NetworkManager: Client received phase change request - ignoring")
 
 @rpc("authority", "call_local", "reliable")
 func sync_phase_change(new_phase: GameState.GameMode):
@@ -243,27 +253,30 @@ func sync_phase_change(new_phase: GameState.GameMode):
 
 # === STATE SYNCHRONIZATION RPCS ===
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_local", "reliable")
 func sync_player_state(player_id: int, player_data: Dictionary):
     """Sync a player's state across all clients"""
-    print("NetworkManager: Syncing player state for ", player_id)
+    print("NetworkManager: Syncing player state for player ", player_id, " to peer ", multiplayer.get_unique_id())
     
     if GameState.players.has(player_id):
         var player = GameState.players[player_id]
+        var old_shop = player.shop_cards.duplicate()
         player.from_dict(player_data)
+        print("NetworkManager: Updated player ", player_id, " shop from ", old_shop, " to ", player.shop_cards)
     else:
         # Create new player from data
         var new_player = PlayerState.new()
         new_player.from_dict(player_data)
         GameState.players[player_id] = new_player
+        print("NetworkManager: Created new player ", player_id, " with shop ", new_player.shop_cards)
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_local", "reliable")
 func sync_card_pool(pool_data: Dictionary):
     """Sync shared card pool across all clients"""
     print("NetworkManager: Syncing shared card pool")
     GameState.shared_card_pool = pool_data
 
-@rpc("authority", "call_remote", "reliable")
+@rpc("authority", "call_local", "reliable")
 func advance_turn():
     """Advance to next turn (host authority)"""
     print("NetworkManager: Advancing turn")
@@ -332,7 +345,7 @@ func change_game_phase(new_phase: GameState.GameMode):
         else:
             print("NetworkManager: Client requesting phase change from host")
             # Client must request from host
-            request_phase_change.rpc_id(1, new_phase)
+            request_phase_change.rpc_id(GameState.host_player_id, new_phase)
     else:
         print("NetworkManager: Practice mode - changing phase directly")
         # In practice mode, change directly
@@ -448,7 +461,7 @@ func get_network_status() -> String:
 
 # === GAME ACTION VALIDATION (HOST ONLY) ===
 
-func _validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: int) -> bool:
+func validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: int) -> bool:
     """Validate and execute a card purchase (host authority)"""
     var player = GameState.players.get(player_id)
     if not player:
@@ -476,13 +489,18 @@ func _validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: 
     player.hand_cards.append(card_id)
     player.shop_cards.remove_at(shop_slot)
     
+    # Notify UI of changes if this is the local player
+    if player_id == local_player_id:
+        player.notify_gold_changed()
+        player.notify_shop_changed()
+    
     # Remove card from shared pool permanently
     GameState.remove_card_from_pool(card_id)
     
     print("Purchase successful: Player ", player_id, " bought ", card_id, " for ", cost, " gold")
     return true
 
-func _validate_and_execute_refresh(player_id: int) -> bool:
+func validate_and_execute_refresh(player_id: int) -> bool:
     """Validate and execute shop refresh (host authority)"""
     var player = GameState.players.get(player_id)
     if not player:
@@ -498,15 +516,17 @@ func _validate_and_execute_refresh(player_id: int) -> bool:
     
     # Deduct cost
     player.current_gold -= refresh_cost
+    player.notify_gold_changed()  # Trigger signal for UI update
     
     # Deal new shop cards
     var shop_size = 3 + player.shop_tier  # Basic shop size + tier bonus
     GameState.deal_cards_to_shop(player_id, shop_size)
+    player.notify_shop_changed()  # Trigger signal for UI update
     
     print("Shop refresh successful for player ", player_id)
     return true
 
-func _validate_and_execute_upgrade(player_id: int) -> bool:
+func validate_and_execute_upgrade(player_id: int) -> bool:
     """Validate and execute shop tier upgrade (host authority)"""
     var player = GameState.players.get(player_id)
     if not player:
@@ -526,10 +546,14 @@ func _validate_and_execute_upgrade(player_id: int) -> bool:
     player.shop_tier += 1
     player.current_tavern_upgrade_cost = GameState.TAVERN_UPGRADE_BASE_COSTS.get(player.shop_tier + 1, 999)
     
+    # Notify UI of changes if this is the local player
+    if player_id == local_player_id:
+        player.notify_gold_changed()
+    
     print("Shop upgrade successful: Player ", player_id, " now tier ", player.shop_tier)
     return true
 
-func _validate_and_execute_sell(player_id: int, card_id: String) -> bool:
+func validate_and_execute_sell(player_id: int, card_id: String) -> bool:
     """Validate and execute minion sell (host authority)"""
     var player = GameState.players.get(player_id)
     if not player:
@@ -550,7 +574,7 @@ func _validate_and_execute_sell(player_id: int, card_id: String) -> bool:
     print("Sell successful: Player ", player_id, " sold ", card_id, " for 1 gold")
     return true
 
-func _validate_and_execute_end_turn(player_id: int) -> bool:
+func validate_and_execute_end_turn(player_id: int) -> bool:
     """Validate and execute end turn (host authority)"""
     var player = GameState.players.get(player_id)
     if not player:

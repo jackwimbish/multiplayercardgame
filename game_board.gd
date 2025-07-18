@@ -50,6 +50,19 @@ func _ready():
     
     # Initialize game systems
     shop_manager.refresh_shop()
+    
+    # Connect shop manager to player signals for multiplayer updates
+    _connect_shop_to_player_signals()
+
+func _connect_shop_to_player_signals():
+    """Connect shop manager to player state signals"""
+    if GameModeManager.is_in_multiplayer_session():
+        var local_player = GameState.get_local_player()
+        if local_player:
+            local_player.shop_cards_changed.connect(shop_manager._on_player_shop_changed)
+            local_player.gold_changed.connect(ui_manager._on_gold_changed)
+            print("Connected shop manager to player shop_cards_changed signal")
+            print("Connected UI manager to player gold_changed signal")
 
 func setup_game_mode():
     """Setup game mode specific features"""

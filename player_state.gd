@@ -4,6 +4,10 @@
 class_name PlayerState
 extends RefCounted
 
+# Signals for state changes
+signal shop_cards_changed(new_shop_cards: Array)
+signal gold_changed(new_gold: int)
+
 # Player identification
 var player_id: int = 0
 var player_name: String = "Player"
@@ -107,6 +111,11 @@ func from_dict(data: Dictionary):
     is_host = data.get("is_host", false)
     is_ready = data.get("is_ready", false)
     connection_status = data.get("connection_status", "connected")
+    
+    # Track if gold/shop changed for signals
+    var old_gold = current_gold
+    var old_shop = shop_cards.duplicate()
+    
     current_gold = data.get("current_gold", 3)
     player_base_gold = data.get("player_base_gold", 3)
     bonus_gold = data.get("bonus_gold", 0)
@@ -119,6 +128,23 @@ func from_dict(data: Dictionary):
     is_ready_for_next_phase = data.get("is_ready_for_next_phase", false)
     has_ended_turn = data.get("has_ended_turn", false)
     ping_ms = data.get("ping_ms", 0)
+    
+    # Emit signals if values changed
+    if old_gold != current_gold:
+        print("PlayerState: Gold changed from ", old_gold, " to ", current_gold, " - emitting signal")
+        gold_changed.emit(current_gold)
+    
+    if old_shop != shop_cards:
+        print("PlayerState: Shop changed from ", old_shop, " to ", shop_cards, " - emitting signal")
+        shop_cards_changed.emit(shop_cards)
+
+func notify_shop_changed():
+    """Manually trigger shop changed signal (for host updates)"""
+    shop_cards_changed.emit(shop_cards)
+
+func notify_gold_changed():
+    """Manually trigger gold changed signal (for host updates)"""
+    gold_changed.emit(current_gold)
 
 # === DEBUG FUNCTIONS ===
 

@@ -29,6 +29,16 @@ func _init(shop_area_ref: Container, ui_manager_ref: UIManager):
     
     print("ShopManager initialized")
 
+func _on_player_shop_changed(new_shop_cards: Array):
+    """Handle when player's shop cards change (from network sync)"""
+    print("ShopManager: Received shop update signal with cards: ", new_shop_cards)
+    if GameModeManager.is_in_multiplayer_session():
+        print("ShopManager: Updating shop display in multiplayer mode")
+        # In multiplayer, update display based on synced data
+        _update_shop_display(new_shop_cards)
+    else:
+        print("ShopManager: Not in multiplayer mode, ignoring shop update signal")
+
 
 
 
@@ -130,6 +140,20 @@ func _clear_shop_cards() -> void:
             child.queue_free()
     current_shop_cards.clear()
 
+func _update_shop_display(shop_card_ids: Array) -> void:
+    """Update shop display with specific cards (for multiplayer sync)"""
+    # Clear existing shop cards
+    _clear_shop_cards()
+    
+    # Create visual cards for each shop card
+    for i in range(shop_card_ids.size()):
+        var card_id = shop_card_ids[i]
+        if card_id != "":
+            _add_card_to_shop(card_id)
+    
+    print("Shop display updated with %d cards" % shop_card_ids.size())
+    shop_refreshed.emit()
+
 func _populate_shop_with_new_cards() -> void:
     """Populate shop with new random cards for current tier"""
     var shop_size = get_shop_size_for_tier(GameState.shop_tier)
@@ -207,9 +231,19 @@ func purchase_card(card_id: String) -> bool:
         # Multiplayer: Use NetworkManager RPC system
         var shop_slot = _find_card_slot_in_shop(card_id)
         if shop_slot >= 0:
-            NetworkManager.request_purchase_card.rpc_id(1, GameState.local_player_id, card_id, shop_slot)
-            print("Sent purchase request for ", card_name, " (multiplayer)")
-            return true
+            if NetworkManager.is_host:
+                # Host executes directly
+                print("Host purchasing card directly")
+                if NetworkManager.validate_and_execute_purchase(GameState.local_player_id, card_id, shop_slot):
+                    NetworkManager.sync_player_state.rpc(GameState.local_player_id, GameState.players[GameState.local_player_id].to_dict())
+                    NetworkManager.sync_card_pool.rpc(GameState.shared_card_pool)
+                return true
+            else:
+                # Client sends RPC to host
+                var host_id = GameState.host_player_id
+                NetworkManager.request_purchase_card.rpc_id(host_id, GameState.local_player_id, card_id, shop_slot)
+                print("Client sent purchase request to host")
+                return true
     else:
         # Practice mode: Direct GameState execution
         if GameState.spend_gold(cost):
@@ -299,10 +333,21 @@ func refresh_shop_for_cost() -> bool:
     
     # Route through appropriate system based on game mode
     if GameModeManager.is_in_multiplayer_session():
-        # Multiplayer: Use NetworkManager RPC system
-        NetworkManager.request_refresh_shop.rpc_id(1, GameState.local_player_id)
-        print("Sent refresh shop request (multiplayer)")
-        return true
+        # Multiplayer: Host executes directly, clients use RPC
+        if NetworkManager.is_host:
+            # Host executes directly to avoid RPC context issues
+            print("Host refreshing shop directly")
+            if NetworkManager.validate_and_execute_refresh(GameState.local_player_id):
+                # Sync state to all clients (including self)
+                NetworkManager.sync_player_state.rpc(GameState.local_player_id, GameState.players[GameState.local_player_id].to_dict())
+                NetworkManager.sync_card_pool.rpc(GameState.shared_card_pool)
+            return true
+        else:
+            # Client sends RPC to host
+            var host_id = GameState.host_player_id
+            NetworkManager.request_refresh_shop.rpc_id(host_id, GameState.local_player_id)
+            print("Client sent refresh shop request to host")
+            return true
     else:
         # Practice mode: Direct GameState execution
         if GameState.spend_gold(REFRESH_COST):
@@ -331,9 +376,18 @@ func upgrade_tavern() -> bool:
     if GameModeManager.is_in_multiplayer_session():
         # Multiplayer: Use NetworkManager RPC system
         if GameState.current_gold >= upgrade_cost:
-            NetworkManager.request_upgrade_shop.rpc_id(1, GameState.local_player_id)
-            print("Sent shop upgrade request (multiplayer)")
-            return true
+            if NetworkManager.is_host:
+                # Host executes directly
+                print("Host upgrading shop directly")
+                if NetworkManager.validate_and_execute_upgrade(GameState.local_player_id):
+                    NetworkManager.sync_player_state.rpc(GameState.local_player_id, GameState.players[GameState.local_player_id].to_dict())
+                return true
+            else:
+                # Client sends RPC to host
+                var host_id = GameState.host_player_id
+                NetworkManager.request_upgrade_shop.rpc_id(host_id, GameState.local_player_id)
+                print("Client sent shop upgrade request to host")
+                return true
         else:
             print("Cannot afford tavern upgrade - need %d gold, have %d" % [upgrade_cost, GameState.current_gold])
     else:

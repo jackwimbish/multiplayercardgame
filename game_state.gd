@@ -122,9 +122,13 @@ func setup_multiplayer_state():
     """Initialize multiplayer state when entering a multiplayer game"""
     if NetworkManager:
         local_player_id = NetworkManager.local_player_id
-        host_player_id = 1
+        # Find the host player ID (the one marked as host)
+        for player_id in NetworkManager.connected_players:
+            if NetworkManager.connected_players[player_id].is_host:
+                host_player_id = player_id
+                break
         
-        print("GameState: Setting up multiplayer - local_player_id: ", local_player_id, ", is_host: ", NetworkManager.is_host)
+        print("GameState: Setting up multiplayer - local_player_id: ", local_player_id, ", host_player_id: ", host_player_id, ", is_host: ", NetworkManager.is_host)
         
         # Initialize all connected players
         for connected_player_id in NetworkManager.connected_players.keys():
@@ -178,9 +182,7 @@ func get_host_player() -> PlayerState:
 
 func is_host() -> bool:
     """Check if local player is the host"""
-    var result = local_player_id == host_player_id
-    print("GameState.is_host() - local_player_id: ", local_player_id, ", host_player_id: ", host_player_id, ", result: ", result)
-    return result
+    return local_player_id == host_player_id
 
 func add_player(player_id: int, player_name: String, is_host_player: bool = false):
     """Add a player to the game state"""
