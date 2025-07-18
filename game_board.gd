@@ -95,10 +95,7 @@ func add_card_to_hand_direct(card_id: String):
     """Add a card directly to hand (delegated to ShopManager for purchase logic)"""
     # For purchases, delegate to ShopManager; for other uses, create card directly
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = CardFactory.create_card(card_data, card_id)
-    
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started)
+    var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
@@ -114,10 +111,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         print("Cannot add generated card - card not found: ", card_id)
         return false
     
-    var new_card = CardFactory.create_card(card_data, card_id)
-    
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started)
+    var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
@@ -141,10 +135,8 @@ func add_generated_card_to_hand(card_id: String) -> bool:
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
-    var new_card = CardFactory.create_card(data, card_id)
+    var new_card = CardFactory.create_interactive_card(data, card_id)
     
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started) # Add this
     #new_card.dropped.connect(_on_card_dropped)
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count() # Update the hand count display

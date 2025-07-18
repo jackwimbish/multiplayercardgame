@@ -21,6 +21,15 @@ The goal is to further decouple game logic, UI interaction, and player input han
 - Replaced `update_ui_displays()` with `UIManager.update_all_game_displays()`
 - Successfully tested and working
 
+**Refactor Candidate #3: Centralized Card Creation** - **COMPLETED**
+- Removed all manual signal connections from card creation functions
+- Updated `game_board.gd` to use `CardFactory.create_interactive_card()` 
+- Updated `ShopManager` to use flexible signal handlers for different card types
+- Shop cards use custom drag handlers, hand cards use standard interactive handlers
+- Combat display cards remain non-interactive (no signal connections)
+- Centralized all card creation logic in CardFactory with appropriate signal handling
+- Successfully tested and working
+
 ---
 
 ### 1. Extract Drag-and-Drop Logic into a `DragDropManager`

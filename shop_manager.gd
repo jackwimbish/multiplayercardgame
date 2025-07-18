@@ -147,10 +147,9 @@ func _populate_shop_with_new_cards() -> void:
 func _add_card_to_shop(card_id: String) -> void:
 	"""Add a card to the shop area"""
 	var card_data = CardDatabase.get_card_data(card_id)
-	var new_card = CardFactory.create_card(card_data, card_id)
-	
-	# Connect drag handler for shop cards (drag-to-purchase)
-	new_card.drag_started.connect(_on_shop_card_drag_started)
+	# Shop cards need custom drag handler only
+	var custom_handlers = {"drag_started": _on_shop_card_drag_started}
+	var new_card = CardFactory.create_card(card_data, card_id, custom_handlers)
 	
 	# Store card_id for purchase logic
 	new_card.set_meta("card_id", card_id)
@@ -241,10 +240,7 @@ func _handle_purchase_failure(card_id: String, result: Dictionary) -> void:
 func _add_card_to_hand_direct(card_id: String) -> void:
 	"""Add a card directly to hand (used by purchase system)"""
 	var card_data = CardDatabase.get_card_data(card_id)
-	var new_card = CardFactory.create_card(card_data, card_id)
-	
-	new_card.card_clicked.connect(ui_manager._on_card_clicked)
-	new_card.drag_started.connect(ui_manager._on_card_drag_started)
+	var new_card = CardFactory.create_interactive_card(card_data, card_id)
 	
 	ui_manager.get_hand_container().add_child(new_card)
 	ui_manager.update_hand_display()
