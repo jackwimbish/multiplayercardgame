@@ -1,0 +1,127 @@
+# MainMenu.gd
+# Main menu scene controller for game mode selection
+
+extends Control
+
+# UI References (will be set in scene)
+@onready var game_title: Label = $VBoxContainer/TitleContainer/GameTitle
+@onready var practice_button: Button = $VBoxContainer/ModeSelection/PracticeButton
+@onready var multiplayer_button: Button = $VBoxContainer/ModeSelection/MultiplayerButton
+@onready var exit_button: Button = $VBoxContainer/ModeSelection/ExitButton
+@onready var mode_description: RichTextLabel = $VBoxContainer/InfoPanel/ModeDescription
+
+# Mode descriptions
+const PRACTICE_DESCRIPTION = "[b]Practice Mode[/b]\n\nPlay against AI opponents to learn the game mechanics. Perfect for trying new strategies and getting familiar with the cards.\n\n• Single player\n• AI opponents\n• No time pressure\n• Full access to all features"
+
+const MULTIPLAYER_DESCRIPTION = "[b]Multiplayer Mode[/b]\n\nPlay against other human players online. Test your skills in competitive matches.\n\n• Online play\n• Real opponents\n• Ranking system\n• Tournaments\n\n[color=orange]Coming Soon![/color]"
+
+const DEFAULT_DESCRIPTION = "[b]Multiplayer Card Game[/b]\n\nChoose your game mode to begin playing. Hover over the buttons to learn more about each mode."
+
+func _ready():
+    print("MainMenu scene loaded")
+    setup_ui()
+    connect_signals()
+    
+    # Set initial description
+    if mode_description:
+        mode_description.text = DEFAULT_DESCRIPTION
+
+func setup_ui():
+    """Initialize UI elements and styling"""
+    # Set game title
+    if game_title:
+        game_title.text = "Multiplayer Card Game"
+    
+    # Configure buttons
+    if practice_button:
+        practice_button.text = "Practice Mode"
+    
+    if multiplayer_button:
+        multiplayer_button.text = "Multiplayer Mode"
+        # Disable multiplayer for now
+        multiplayer_button.disabled = true
+        multiplayer_button.tooltip_text = "Coming in a future update!"
+    
+    if exit_button:
+        exit_button.text = "Exit Game"
+
+func connect_signals():
+    """Connect button signals and hover events"""
+    if practice_button:
+        practice_button.pressed.connect(_on_practice_button_pressed)
+        practice_button.mouse_entered.connect(_on_practice_button_hover)
+        practice_button.mouse_exited.connect(_on_button_hover_exit)
+    
+    if multiplayer_button:
+        multiplayer_button.pressed.connect(_on_multiplayer_button_pressed)
+        multiplayer_button.mouse_entered.connect(_on_multiplayer_button_hover)
+        multiplayer_button.mouse_exited.connect(_on_button_hover_exit)
+    
+    if exit_button:
+        exit_button.pressed.connect(_on_exit_button_pressed)
+        exit_button.mouse_entered.connect(_on_exit_button_hover)
+        exit_button.mouse_exited.connect(_on_button_hover_exit)
+
+# === BUTTON SIGNAL HANDLERS ===
+
+func _on_practice_button_pressed():
+    """Handle practice mode button press"""
+    print("Practice mode selected")
+    GameModeManager.select_practice_mode()
+    SceneManager.go_to_game_board()
+
+func _on_multiplayer_button_pressed():
+    """Handle multiplayer mode button press"""
+    print("Multiplayer mode selected")
+    GameModeManager.select_multiplayer_mode()
+    # Future: SceneManager.go_to_multiplayer_lobby()
+    
+    # For now, show a message
+    if mode_description:
+        mode_description.text = "[color=orange][b]Multiplayer Mode[/b]\n\nMultiplayer functionality is coming in a future update! For now, please try Practice Mode.[/color]"
+
+func _on_exit_button_pressed():
+    """Handle exit button press"""
+    print("Exit game requested")
+    get_tree().quit()
+
+# === HOVER HANDLERS ===
+
+func _on_practice_button_hover():
+    """Show practice mode description on hover"""
+    if mode_description:
+        mode_description.text = PRACTICE_DESCRIPTION
+
+func _on_multiplayer_button_hover():
+    """Show multiplayer mode description on hover"""
+    if mode_description:
+        mode_description.text = MULTIPLAYER_DESCRIPTION
+
+func _on_exit_button_hover():
+    """Show exit description on hover"""
+    if mode_description:
+        mode_description.text = "[b]Exit Game[/b]\n\nClose the application and return to your desktop."
+
+func _on_button_hover_exit():
+    """Reset description when mouse leaves buttons"""
+    if mode_description:
+        mode_description.text = DEFAULT_DESCRIPTION
+
+# === UTILITY FUNCTIONS ===
+
+func show_welcome_message():
+    """Show a welcome message (can be called from other scenes)"""
+    if mode_description:
+        mode_description.text = "[b]Welcome back![/b]\n\nChoose your preferred game mode to continue playing."
+
+# === INPUT HANDLERS ===
+
+func _input(event):
+    """Handle keyboard input"""
+    if event.is_action_pressed("ui_cancel"):
+        # ESC key exits the game
+        _on_exit_button_pressed()
+    elif event.is_action_pressed("ui_accept"):
+        # Enter key selects practice mode (default)
+        if practice_button and not practice_button.disabled:
+            _on_practice_button_pressed() 

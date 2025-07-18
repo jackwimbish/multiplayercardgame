@@ -1,0 +1,86 @@
+[gd_scene load_steps=2 format=3 uid="uid://c1gx8xj4qr5p8"]
+
+[ext_resource type="Script" path="res://main_menu.gd" id="1_8fx7x"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+script = ExtResource("1_8fx7x")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0.1, 0.1, 0.15, 1)
+
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -250.0
+offset_right = 300.0
+offset_bottom = 250.0
+
+[node name="TitleContainer" type="VBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="GameTitle" type="Label" parent="VBoxContainer/TitleContainer"]
+layout_mode = 2
+size_flags_vertical = 6
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 48
+text = "Multiplayer Card Game"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ModeSelection" type="VBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+alignment = 1
+
+[node name="PracticeButton" type="Button" parent="VBoxContainer/ModeSelection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Practice Mode"
+
+[node name="MultiplayerButton" type="Button" parent="VBoxContainer/ModeSelection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Multiplayer Mode"
+disabled = true
+
+[node name="HSeparator" type="HSeparator" parent="VBoxContainer/ModeSelection"]
+layout_mode = 2
+
+[node name="ExitButton" type="Button" parent="VBoxContainer/ModeSelection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Exit Game"
+
+[node name="InfoPanel" type="Panel" parent="VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ModeDescription" type="RichTextLabel" parent="VBoxContainer/InfoPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = -20.0
+offset_bottom = -20.0
+theme_override_font_sizes/normal_font_size = 16
+bbcode_enabled = true
+text = "[b]Multiplayer Card Game[/b]
+
+Choose your game mode to begin playing. Hover over the buttons to learn more about each mode."
+scroll_active = false 
