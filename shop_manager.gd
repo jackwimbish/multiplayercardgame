@@ -300,6 +300,9 @@ func _add_card_to_hand_direct(card_id: String) -> void:
     var card_data = CardDatabase.get_card_data(card_id)
     var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
+    
     ui_manager.get_hand_container().add_child(new_card)
     ui_manager.update_hand_display()
 

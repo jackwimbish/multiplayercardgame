@@ -189,14 +189,35 @@ func update_board_display():
 
 func update_health_displays(new_health: int = -1):
     """Update health display labels (parameter ignored, we read from GameState)"""
-    print("UIManager updating health displays - Player: %d, Enemy: %d" % [GameState.player_health, GameState.enemy_health])
-    if player_health_label:
-        player_health_label.text = "Player Health: %d" % GameState.player_health
-        print("Updated player health label to: ", player_health_label.text)
+    if GameModeManager.is_in_multiplayer_session():
+        # Multiplayer: Show both player names with health
+        var local_player = GameState.get_local_player()
+        var opponent = GameState.get_opponent_player()
         
-    if enemy_health_label:
-        enemy_health_label.text = "Enemy Health: %d" % GameState.enemy_health
-        print("Updated enemy health label to: ", enemy_health_label.text)
+        print("UIManager updating health displays - %s: %d, %s: %d" % [
+            local_player.player_name if local_player else "Player",
+            local_player.player_health if local_player else 0,
+            opponent.player_name if opponent else "Opponent", 
+            opponent.player_health if opponent else 0
+        ])
+        
+        if player_health_label and local_player:
+            player_health_label.text = "%s: %d HP" % [local_player.player_name, local_player.player_health]
+            print("Updated player health label to: ", player_health_label.text)
+        
+        if enemy_health_label and opponent:
+            enemy_health_label.text = "%s: %d HP" % [opponent.player_name, opponent.player_health]
+            print("Updated enemy health label to: ", enemy_health_label.text)
+    else:
+        # Practice mode: Show generic labels
+        print("UIManager updating health displays - Player: %d, Enemy: %d" % [GameState.player_health, GameState.enemy_health])
+        if player_health_label:
+            player_health_label.text = "Player Health: %d" % GameState.player_health
+            print("Updated player health label to: ", player_health_label.text)
+            
+        if enemy_health_label:
+            enemy_health_label.text = "Enemy Health: %d" % GameState.enemy_health
+            print("Updated enemy health label to: ", enemy_health_label.text)
 
 func _on_game_over(winner: String):
     """Handle game over UI updates"""

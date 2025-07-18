@@ -24,6 +24,10 @@ signal connection_lost()
 signal game_start_requested()
 signal network_error(message: String)
 
+# Combat events
+signal combat_started(combat_data: Dictionary)
+signal combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int)
+
 func _ready():
     print("NetworkManager initialized")
     # Connect multiplayer signals
@@ -224,6 +228,21 @@ func request_end_turn(player_id: int):
         if _all_players_ended_turn():
             advance_turn.rpc()
 
+@rpc("any_peer", "call_local", "reliable")
+func update_board_state(player_id: int, board_minions: Array):
+    """Update a player's board state when minions are played/sold/reordered"""
+    print("NetworkManager: Board state update - Player: ", player_id, " Minions: ", board_minions)
+    
+    # Only host processes board updates
+    if is_host:
+        if GameState.players.has(player_id):
+            var player = GameState.players[player_id]
+            player.board_minions = board_minions
+            # Sync the updated state to all clients
+            sync_player_state.rpc(player_id, player.to_dict())
+        else:
+            print("NetworkManager: Player ", player_id, " not found for board update")
+
 # === PHASE CONTROL RPCS (HOST ONLY) ===
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -321,6 +340,44 @@ func advance_turn_and_return_to_shop():
     
     # Then change phase to shop
     sync_phase_change.rpc(GameState.GameMode.SHOP)
+
+# === COMBAT SYNCHRONIZATION RPCS ===
+
+@rpc("authority", "call_local", "reliable")
+func sync_combat_start(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array, random_seed: int):
+    """Broadcast combat start with both player boards and deterministic seed"""
+    print("NetworkManager: Combat starting - Player ", player1_id, " vs Player ", player2_id, " with seed ", random_seed)
+    
+    # Store combat data for clients to use
+    var combat_data = {
+        "player1_id": player1_id,
+        "player1_board": player1_board,
+        "player2_id": player2_id, 
+        "player2_board": player2_board,
+        "random_seed": random_seed
+    }
+    
+    # Emit signal so CombatManager can handle the combat
+    # We'll create this signal next
+    combat_started.emit(combat_data)
+
+@rpc("authority", "call_local", "reliable")
+func sync_combat_results(combat_log: Array, player1_damage: int, player2_damage: int):
+    """Broadcast combat results to all players"""
+    print("NetworkManager: Combat results - P1 damage: ", player1_damage, ", P2 damage: ", player2_damage)
+    
+    # Apply damage on all clients
+    if player1_damage > 0:
+        if GameState.players.has(GameState.host_player_id):
+            GameState.players[GameState.host_player_id].player_health -= player1_damage
+    
+    if player2_damage > 0:
+        var opponent = GameState.get_opponent_player()
+        if opponent:
+            opponent.player_health -= player2_damage
+    
+    # Emit signal for UI update
+    combat_results_received.emit(combat_log, player1_damage, player2_damage)
 
 # === UTILITY FUNCTIONS ===
 

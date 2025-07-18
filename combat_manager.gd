@@ -35,25 +35,60 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
     # Connect to game mode changes for multiplayer sync
     if GameState:
         GameState.game_mode_changed.connect(_on_game_mode_changed)
+    
+    # Connect to combat signals in multiplayer
+    if GameModeManager.is_in_multiplayer_session() and NetworkManager:
+        NetworkManager.combat_started.connect(_on_multiplayer_combat_started)
+        NetworkManager.combat_results_received.connect(_on_combat_results_received)
 
 # === PUBLIC INTERFACE FOR GAME_BOARD ===
 
 func start_combat(enemy_board_name: String) -> void:
-    """Main entry point to start combat against an enemy board"""
+    """Main entry point to start combat against an enemy board (practice mode)"""
     print("Starting combat against: %s" % enemy_board_name)
     current_enemy_board_name = enemy_board_name
+
+func start_multiplayer_combat() -> void:
+    """Start combat in multiplayer mode - uses real opponent boards"""
+    if not NetworkManager or not NetworkManager.is_host:
+        print("Only host can start multiplayer combat")
+        return
     
-    # Switch to combat screen
-    switch_to_combat_mode(enemy_board_name)
+    print("Starting multiplayer combat")
     
-    # Run combat simulation and display results
-    var combat_result = simulate_full_combat(enemy_board_name)
-    display_combat_log(combat_result)
+    # Get both players
+    var player1 = GameState.get_host_player()
+    var player2 = GameState.get_opponent_player()
     
-    # Automatically show the combined result view (log + final board states)
-    _show_combat_result_with_log()
+    if not player1 or not player2:
+        print("Error: Could not find both players for combat")
+        return
     
-    combat_started.emit(enemy_board_name)
+    print("Player1 ID: ", player1.player_id, " Name: ", player1.player_name)
+    print("Player1 board_minions: ", player1.board_minions)
+    print("Player2 ID: ", player2.player_id, " Name: ", player2.player_name) 
+    print("Player2 board_minions: ", player2.board_minions)
+    
+    # Generate deterministic seed for combat
+    var combat_seed = Time.get_ticks_msec()
+    
+    # Change phase to combat
+    NetworkManager.change_game_phase(GameState.GameMode.COMBAT)
+    
+    # Broadcast combat start with both player boards
+    NetworkManager.sync_combat_start.rpc(
+        player1.player_id,
+        player1.board_minions.duplicate(),
+        player2.player_id,
+        player2.board_minions.duplicate(),
+        combat_seed
+    )
+    
+    # Switch to combat screen (no enemy board name in multiplayer)
+    switch_to_combat_mode("")
+    
+    # Combat simulation will happen via network signals
+    # The host will run the simulation in _on_multiplayer_combat_started
 
 func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
@@ -496,14 +531,16 @@ func _update_combat_ui_for_combat_mode() -> void:
 
 func _update_combat_ui_for_shop_mode() -> void:
     """Update combat UI elements for shop mode"""
-    # Only show combat controls for host in multiplayer
-    var is_host_or_practice = not GameModeManager.is_in_multiplayer_session() or GameState.is_host()
+    var is_multiplayer = GameModeManager.is_in_multiplayer_session()
+    var is_host = GameState.is_host()
     
     if ui_manager.start_combat_button:
-        ui_manager.start_combat_button.visible = is_host_or_practice
+        # In multiplayer, only host can start combat
+        ui_manager.start_combat_button.visible = not is_multiplayer or is_host
     
     if ui_manager.enemy_board_selector:
-        ui_manager.enemy_board_selector.get_parent().visible = is_host_or_practice
+        # Completely hide enemy board selector in multiplayer
+        ui_manager.enemy_board_selector.get_parent().visible = not is_multiplayer
     
     if ui_manager.combat_view_toggle_button:
         ui_manager.combat_view_toggle_button.visible = false
@@ -819,4 +856,203 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         # Update displays - turn has already advanced so values should be correct
         ui_manager.update_all_game_displays()
         
-        mode_switched.emit("shop") 
+        mode_switched.emit("shop")
+
+# === MULTIPLAYER COMBAT HANDLERS ===
+
+func _on_multiplayer_combat_started(combat_data: Dictionary) -> void:
+    """Handle combat start signal from NetworkManager"""
+    print("Multiplayer combat started signal received")
+    
+    # Extract combat data
+    var player1_id = combat_data.get("player1_id")
+    var player1_board = combat_data.get("player1_board", [])
+    var player2_id = combat_data.get("player2_id") 
+    var player2_board = combat_data.get("player2_board", [])
+    var random_seed = combat_data.get("random_seed", 0)
+    
+    # Set up RNG with the seed
+    var rng = RandomNumberGenerator.new()
+    rng.seed = random_seed
+    
+    # Run combat simulation if we're the host
+    if NetworkManager.is_host:
+        print("Host running combat simulation")
+        _run_multiplayer_combat_simulation(player1_id, player1_board, player2_id, player2_board, rng)
+
+func _run_multiplayer_combat_simulation(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array, rng: RandomNumberGenerator) -> void:
+    """Run the combat simulation on the host and broadcast results"""
+    
+    # Get player names
+    var player1_name = GameState.players[player1_id].player_name if GameState.players.has(player1_id) else "Player 1"
+    var player2_name = GameState.players[player2_id].player_name if GameState.players.has(player2_id) else "Player 2"
+    
+    # Run combat with player boards
+    var combat_log = _simulate_multiplayer_combat(player1_board, player2_board, player1_name, player2_name, rng)
+    
+    # Determine damage based on combat results
+    var player1_damage = 0
+    var player2_damage = 0
+    
+    # Check the last action in the log for winner
+    for action in combat_log:
+        if action.get("type") == "combat_end":
+            var winner = action.get("winner", "")
+            if winner == "player1":
+                player2_damage = DEFAULT_COMBAT_DAMAGE
+            elif winner == "player2":
+                player1_damage = DEFAULT_COMBAT_DAMAGE
+            # If it's a tie, no damage
+    
+    # Broadcast results
+    NetworkManager.sync_combat_results.rpc(combat_log, player1_damage, player2_damage)
+
+func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, player1_name: String, player2_name: String, rng: RandomNumberGenerator) -> Array:
+    """Simulate combat between two player boards with deterministic RNG"""
+    var action_log = []
+    
+    # Add turn indicator at the start
+    action_log.append({
+        "type": "turn_start",
+        "turn": GameState.current_turn
+    })
+    
+    action_log.append({
+        "type": "combat_start", 
+        "player1_minions": player1_board.size(),
+        "player2_minions": player2_board.size()
+    })
+    
+    # Check for immediate win conditions (empty armies)
+    if player1_board.is_empty() and player2_board.is_empty():
+        action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
+        return action_log
+    elif player1_board.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player2", "reason": "player1_no_minions"})
+        return action_log
+    elif player2_board.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player1", "reason": "player2_no_minions"})
+        return action_log
+    
+    # Create minion instances from card IDs
+    var player1_minions = []
+    var player2_minions = []
+    
+    for i in range(player1_board.size()):
+        var card_data = CardDatabase.get_card_data(player1_board[i])
+        player1_minions.append({
+            "id": player1_board[i],
+            "position": i + 1,
+            "attack": card_data.get("attack", 1),
+            "health": card_data.get("health", 1),
+            "owner": player1_name
+        })
+    
+    for i in range(player2_board.size()):
+        var card_data = CardDatabase.get_card_data(player2_board[i])
+        player2_minions.append({
+            "id": player2_board[i],
+            "position": i + 1,
+            "attack": card_data.get("attack", 1),
+            "health": card_data.get("health", 1),
+            "owner": player2_name
+        })
+    
+    # Determine who goes first
+    var p1_turn: bool
+    if player1_minions.size() > player2_minions.size():
+        p1_turn = true
+        action_log.append({"type": "first_attacker", "attacker": "player1", "reason": "more_minions"})
+    elif player2_minions.size() > player1_minions.size():
+        p1_turn = false
+        action_log.append({"type": "first_attacker", "attacker": "player2", "reason": "more_minions"})
+    else:
+        p1_turn = rng.randf() < 0.5
+        action_log.append({"type": "first_attacker", "attacker": "player1" if p1_turn else "player2", "reason": "random_equal_minions"})
+    
+    # Combat loop
+    var max_attacks = 20
+    var attack_count = 0
+    
+    while not player1_minions.is_empty() and not player2_minions.is_empty() and attack_count < max_attacks:
+        var attacker
+        var defender
+        var attacker_list
+        var defender_list
+        
+        if p1_turn:
+            attacker_list = player1_minions
+            defender_list = player2_minions
+        else:
+            attacker_list = player2_minions
+            defender_list = player1_minions
+        
+        # Choose attacker and defender
+        attacker = attacker_list[rng.randi() % attacker_list.size()]
+        defender = defender_list[rng.randi() % defender_list.size()]
+        
+        # Log attack with player names and positions
+        action_log.append({
+            "type": "attack",
+            "attacker_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown") + " (pos " + str(attacker.position) + ")",
+            "defender_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown") + " (pos " + str(defender.position) + ")",
+            "attacker_attack": attacker.attack,
+            "attacker_health": attacker.health,
+            "defender_attack": defender.attack,
+            "defender_health": defender.health
+        })
+        
+        # Apply damage
+        attacker.health -= defender.attack
+        defender.health -= attacker.attack
+        
+        # Check deaths
+        if attacker.health <= 0:
+            action_log.append({"type": "death", "target_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown")})
+            attacker_list.erase(attacker)
+        
+        if defender.health <= 0:
+            action_log.append({"type": "death", "target_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown")})
+            defender_list.erase(defender)
+        
+        # Switch turns
+        p1_turn = not p1_turn
+        attack_count += 1
+    
+    # Determine winner
+    if player1_minions.is_empty() and player2_minions.is_empty():
+        action_log.append({"type": "combat_tie", "reason": "both_died"})
+    elif player1_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player2"})
+    elif player2_minions.is_empty():
+        action_log.append({"type": "combat_end", "winner": "player1"})
+    else:
+        action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
+    
+    return action_log
+
+func _on_combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int) -> void:
+    """Handle combat results broadcast from host"""
+    print("Combat results received - P1 damage: ", player1_damage, ", P2 damage: ", player2_damage)
+    
+    # Display the combat log
+    _show_multiplayer_combat_log(combat_log)
+    
+    # Apply damage is already done in NetworkManager, just update UI
+    ui_manager.update_health_displays()
+
+func _show_multiplayer_combat_log(combat_log: Array) -> void:
+    """Display the multiplayer combat log"""
+    var formatted_log = "[b][color=yellow]Turn %d Combat Results[/color][/b]\n\n" % GameState.current_turn
+    
+    for action in combat_log:
+        formatted_log += format_combat_action(action) + "\n"
+    
+    # Add damage summary
+    formatted_log += "\n[b][color=cyan]Combat Complete![/color][/b]\n"
+    
+    # Show in combat log display
+    if ui_manager.combat_log_display:
+        ui_manager.combat_log_display.clear()
+        ui_manager.combat_log_display.append_text(formatted_log)
+        ui_manager.combat_log_display.visible = true

@@ -197,6 +197,9 @@ func add_card_to_hand_direct(card_id: String):
     var card_data = CardDatabase.get_card_data(card_id)
     var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
+    
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
 
@@ -212,6 +215,9 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         return false
     
     var new_card = CardFactory.create_interactive_card(card_data, card_id)
+    
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
@@ -236,6 +242,9 @@ func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
     var new_card = CardFactory.create_interactive_card(data, card_id)
+    
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
     
     #new_card.dropped.connect(_on_card_dropped)
     ui_manager.get_hand_container().add_child(new_card)
@@ -335,6 +344,10 @@ func _handle_hand_to_board_drop(card):
     # Play the minion to the board
     _play_minion_to_board(card)
     print("Played ", card_name, " to board")
+    
+    # Sync board state in multiplayer
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_invalid_shop_drop(card):
     """Handle invalid drops for shop cards"""
@@ -370,6 +383,10 @@ func _handle_board_reorder_drop(card):
     else:
         # If it was dropped past the last card, move it to the end
         board_container.move_child(card, board_container.get_child_count() - 1)
+    
+    # Sync board state in multiplayer (position changed)
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -408,6 +425,10 @@ func _handle_board_to_shop_drop(card):
     ui_manager.update_gold_display_detailed()  # Update gold display
     
     print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
+    
+    # Sync board state in multiplayer (minion sold)
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -628,19 +649,24 @@ func format_combat_action(action: Dictionary) -> String:
 
 func _on_start_combat_button_pressed() -> void:
     """Handle start combat button press - delegate to CombatManager"""
-    if not ui_manager.enemy_board_selector:
-        print("Error: Enemy board selector not available")
-        return
+    if GameModeManager.is_in_multiplayer_session():
+        # Multiplayer combat - no enemy selection needed
+        combat_manager.start_multiplayer_combat()
+    else:
+        # Practice mode - use enemy board selector
+        if not ui_manager.enemy_board_selector:
+            print("Error: Enemy board selector not available")
+            return
+            
+        var selected_index = ui_manager.enemy_board_selector.selected
+        var board_names = EnemyBoards.get_enemy_board_names()
         
-    var selected_index = ui_manager.enemy_board_selector.selected
-    var board_names = EnemyBoards.get_enemy_board_names()
-    
-    if selected_index < 0 or selected_index >= board_names.size():
-        print("Error: Invalid enemy board selection")
-        return
-        
-    var selected_board_name = board_names[selected_index]
-    combat_manager.start_combat(selected_board_name)
+        if selected_index < 0 or selected_index >= board_names.size():
+            print("Error: Invalid enemy board selection")
+            return
+            
+        var selected_board_name = board_names[selected_index]
+        combat_manager.start_combat(selected_board_name)
 
 # Combat view toggle function removed - now showing combined result view only
 
@@ -740,6 +766,34 @@ func create_stat_modification_buff(buff_id: String, display_name: String, attack
     buff.duration = Buff.Duration.PERMANENT  # Use proper enum value
     buff.stackable = false
     return buff
+
+func _sync_board_state_to_network():
+    """Sync the current board state to the network"""
+    var board_container = ui_manager.get_board_container()
+    var board_minions = []
+    
+    print("_sync_board_state_to_network called - checking board children:")
+    # Get all minions on the board in order
+    for child in board_container.get_children():
+        print("  Child: ", child.name, " has_meta('card_id'): ", child.has_meta("card_id"))
+        if child.name != "PlayerBoardLabel" and child.has_meta("card_id"):
+            var card_id = child.get_meta("card_id")
+            board_minions.append(card_id)
+            print("    Added card_id: ", card_id)
+    
+    print("Board minions to sync: ", board_minions)
+    
+    # Send board state to host
+    if NetworkManager.is_host:
+        # Host updates directly
+        print("Host updating board state directly")
+        NetworkManager.update_board_state(GameState.local_player_id, board_minions)
+    else:
+        # Client sends to host
+        print("Client sending board state to host")
+        NetworkManager.update_board_state.rpc_id(GameState.host_player_id, GameState.local_player_id, board_minions)
+    
+    print("Synced board state: ", board_minions)
 
 # === Test functions removed for GameState migration completion ===
 # Will implement proper testing system later
