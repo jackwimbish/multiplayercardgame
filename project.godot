@@ -23,6 +23,7 @@ DragDropManager="*res://drag_drop_manager.gd"
 GameModeManager="*res://game_mode_manager.gd"
 SceneManager="*res://scene_manager.gd"
 SettingsManager="*res://settings_manager.gd"
+NetworkManager="*res://network_manager.gd"
 
 [display]
 

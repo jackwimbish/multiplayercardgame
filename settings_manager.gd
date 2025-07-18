@@ -35,7 +35,11 @@ func load_settings():
             "window_fullscreen": config.get_value("display", "fullscreen", false),
             "master_volume": config.get_value("audio", "master_volume", 1.0),
             "music_volume": config.get_value("audio", "music_volume", 0.7),
-            "sfx_volume": config.get_value("audio", "sfx_volume", 0.8)
+            "sfx_volume": config.get_value("audio", "sfx_volume", 0.8),
+            # Network settings
+            "last_host_ip": config.get_value("network", "last_host_ip", "127.0.0.1"),
+            "last_port": config.get_value("network", "last_port", 9999),
+            "auto_ready": config.get_value("network", "auto_ready", false)
         }
         print("Settings loaded from file")
     else:
@@ -46,7 +50,11 @@ func load_settings():
             "window_fullscreen": false,
             "master_volume": 1.0,
             "music_volume": 0.7,
-            "sfx_volume": 0.8
+            "sfx_volume": 0.8,
+            # Network settings
+            "last_host_ip": "127.0.0.1",
+            "last_port": 9999,
+            "auto_ready": false
         }
         print("Using default settings (file not found or corrupted)")
     
@@ -71,6 +79,11 @@ func save_settings():
     config.set_value("audio", "master_volume", settings_data.get("master_volume", 1.0))
     config.set_value("audio", "music_volume", settings_data.get("music_volume", 0.7))
     config.set_value("audio", "sfx_volume", settings_data.get("sfx_volume", 0.8))
+    
+    # Save network settings
+    config.set_value("network", "last_host_ip", settings_data.get("last_host_ip", "127.0.0.1"))
+    config.set_value("network", "last_port", settings_data.get("last_port", 9999))
+    config.set_value("network", "auto_ready", settings_data.get("auto_ready", false))
     
     # Write to file
     var error = config.save(SETTINGS_FILE)
@@ -100,6 +113,26 @@ func apply_settings():
 func get_player_name() -> String:
     """Get saved player name"""
     return settings_data.get("player_name", DEFAULT_PLAYER_NAME)
+
+func get_unique_player_name() -> String:
+    """Get unique player name for multiplayer sessions (adds suffix in debug mode)"""
+    var base_name = get_player_name()
+    
+    # In debug builds, add unique suffix to prevent name conflicts when testing
+    if OS.is_debug_build():
+        var instance_suffix = _get_instance_suffix()
+        return base_name + "_" + instance_suffix
+    else:
+        # Production builds use the saved name as-is
+        return base_name
+
+func _get_instance_suffix() -> String:
+    """Generate unique suffix based on process ID"""
+    var pid = OS.get_process_id()
+    # Convert PID to letter (A, B, C, etc.) using modulo 26
+    var letter_index = pid % 26
+    var letter = char(65 + letter_index)  # 65 = ASCII 'A'
+    return str(letter)
 
 func set_player_name(name: String):
     """Set and save player name"""
@@ -167,6 +200,46 @@ func set_fullscreen(enabled: bool):
         DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
     save_settings()
 
+# === NETWORK SETTINGS ===
+
+func get_last_host_ip() -> String:
+    """Get last used host IP address"""
+    return settings_data.get("last_host_ip", "127.0.0.1")
+
+func set_last_host_ip(ip: String):
+    """Set and save last used host IP"""
+    settings_data["last_host_ip"] = ip
+    save_settings()
+
+func get_last_port() -> int:
+    """Get last used port"""
+    return settings_data.get("last_port", 9999)
+
+func set_last_port(port: int):
+    """Set and save last used port"""
+    settings_data["last_port"] = port
+    save_settings()
+
+func get_auto_ready() -> bool:
+    """Get auto-ready setting"""
+    return settings_data.get("auto_ready", false)
+
+func set_auto_ready(enabled: bool):
+    """Set and save auto-ready setting"""
+    settings_data["auto_ready"] = enabled
+    save_settings()
+
+func get_setting(section: String, key: String, default_value = null):
+    """Get a setting value by section and key"""
+    var setting_key = section + "_" + key
+    return settings_data.get(setting_key, default_value)
+
+func set_setting(section: String, key: String, value):
+    """Set and save a setting value by section and key"""
+    var setting_key = section + "_" + key
+    settings_data[setting_key] = value
+    save_settings()
+
 # === UTILITY FUNCTIONS ===
 
 func reset_to_defaults():
@@ -177,7 +250,11 @@ func reset_to_defaults():
         "window_fullscreen": false,
         "master_volume": 1.0,
         "music_volume": 0.7,
-        "sfx_volume": 0.8
+        "sfx_volume": 0.8,
+        # Network settings
+        "last_host_ip": "127.0.0.1",
+        "last_port": 9999,
+        "auto_ready": false
     }
     apply_settings()
     save_settings()

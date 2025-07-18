@@ -25,12 +25,17 @@ func _ready():
     # Add to game_board group for CardFactory access
     add_to_group("game_board")
     
+    # Initialize GameState for the current game mode
+    GameState.initialize_game_state()
+    
     # Setup game mode specific features
     setup_game_mode()
     
     # Note: UI setup is now handled by UIManager
     # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
     GameState.game_over.connect(_on_game_over)
+    GameState.player_eliminated.connect(_on_player_eliminated)
+    GameState.player_victorious.connect(_on_player_victorious)
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
@@ -47,6 +52,20 @@ func _ready():
     
     # Initialize game systems
     shop_manager.refresh_shop()
+    
+    # Connect shop manager to player signals for multiplayer updates
+    _connect_shop_to_player_signals()
+
+func _connect_shop_to_player_signals():
+    """Connect shop manager to player state signals"""
+    if GameModeManager.is_in_multiplayer_session():
+        var local_player = GameState.get_local_player()
+        if local_player:
+            local_player.shop_cards_changed.connect(shop_manager._on_player_shop_changed)
+            # Create wrapper for gold_changed signal (PlayerState emits 1 param, UI expects 2)
+            local_player.gold_changed.connect(func(new_gold): ui_manager._on_gold_changed(new_gold, GameState.GLOBAL_GOLD_MAX))
+            print("Connected shop manager to player shop_cards_changed signal")
+            print("Connected UI manager to player gold_changed signal")
 
 func setup_game_mode():
     """Setup game mode specific features"""
@@ -58,6 +77,15 @@ func setup_game_mode():
     # Add Return to Menu button for practice mode
     if GameModeManager.is_practice_mode():
         add_return_to_menu_button()
+    
+    # Set initial combat UI visibility for multiplayer mode
+    if GameModeManager.is_in_multiplayer_session():
+        # In multiplayer, only host can start combat
+        if ui_manager.start_combat_button:
+            ui_manager.start_combat_button.visible = GameState.is_host()
+        # Hide enemy board selector in multiplayer
+        if ui_manager.enemy_board_selector:
+            ui_manager.enemy_board_selector.get_parent().visible = false
 
 func add_mode_indicator():
     """Add a mode indicator to show current game mode"""
@@ -70,7 +98,16 @@ func add_mode_indicator():
     # Create mode indicator label
     var mode_label = Label.new()
     mode_label.name = "ModeIndicator"
-    mode_label.text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    var mode_text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    
+    # Add host indicator in multiplayer
+    if GameModeManager.is_in_multiplayer_session():
+        if GameState.is_host():
+            mode_text += " (Host)"
+        else:
+            mode_text += " (Client)"
+    
+    mode_label.text = mode_text
     mode_label.size_flags_horizontal = Control.SIZE_SHRINK_END
     
     # Style the label
@@ -123,6 +160,22 @@ func _on_return_to_menu_pressed():
 func _on_game_over(winner: String):
     print("Game Over! Winner: ", winner)
 
+func _on_player_eliminated(player_id: int, placement: int):
+    """Handle when a player is eliminated"""
+    print("Player ", player_id, " eliminated at ", placement, " place")
+    
+    # If it's the local player, show the loss screen
+    if player_id == GameState.local_player_id:
+        ui_manager.show_loss_screen(placement)
+
+func _on_player_victorious(player_id: int):
+    """Handle when a player wins"""
+    print("Player ", player_id, " is victorious!")
+    
+    # If it's the local player, show the victory screen
+    if player_id == GameState.local_player_id:
+        ui_manager.show_victory_screen(1)
+
 func _on_card_clicked(card_node):
     # Don't show card details if we're in combat mode
     if GameState.current_mode == GameState.GameMode.COMBAT:
@@ -171,6 +224,9 @@ func add_card_to_hand_direct(card_id: String):
     var card_data = CardDatabase.get_card_data(card_id)
     var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
+    
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
 
@@ -186,6 +242,9 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         return false
     
     var new_card = CardFactory.create_interactive_card(card_data, card_id)
+    
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
@@ -210,6 +269,9 @@ func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
     var new_card = CardFactory.create_interactive_card(data, card_id)
+    
+    # Store card_id for board state sync
+    new_card.set_meta("card_id", card_id)
     
     #new_card.dropped.connect(_on_card_dropped)
     ui_manager.get_hand_container().add_child(new_card)
@@ -309,6 +371,10 @@ func _handle_hand_to_board_drop(card):
     # Play the minion to the board
     _play_minion_to_board(card)
     print("Played ", card_name, " to board")
+    
+    # Sync board state in multiplayer
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_invalid_shop_drop(card):
     """Handle invalid drops for shop cards"""
@@ -344,6 +410,10 @@ func _handle_board_reorder_drop(card):
     else:
         # If it was dropped past the last card, move it to the end
         board_container.move_child(card, board_container.get_child_count() - 1)
+    
+    # Sync board state in multiplayer (position changed)
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -382,6 +452,10 @@ func _handle_board_to_shop_drop(card):
     ui_manager.update_gold_display_detailed()  # Update gold display
     
     print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
+    
+    # Sync board state in multiplayer (minion sold)
+    if GameModeManager.is_in_multiplayer_session():
+        _sync_board_state_to_network()
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -583,6 +657,8 @@ func format_combat_action(action: Dictionary) -> String:
                     return "Combat tied! (%s)" % reason
         "auto_loss":
             return "%s loses automatically (%s)" % [action.get("loser", "?"), action.get("reason", "?")]
+        "auto_win":
+            return "%s wins automatically (opponent eliminated)" % action.get("winner", "?")
         "turn_start":
             return "[b][color=cyan]Turn %d begins![/color][/b] Gold and shop refreshed." % action.get("turn", 0)
         "first_attacker":
@@ -602,19 +678,24 @@ func format_combat_action(action: Dictionary) -> String:
 
 func _on_start_combat_button_pressed() -> void:
     """Handle start combat button press - delegate to CombatManager"""
-    if not ui_manager.enemy_board_selector:
-        print("Error: Enemy board selector not available")
-        return
+    if GameModeManager.is_in_multiplayer_session():
+        # Multiplayer combat - no enemy selection needed
+        combat_manager.start_multiplayer_combat()
+    else:
+        # Practice mode - use enemy board selector
+        if not ui_manager.enemy_board_selector:
+            print("Error: Enemy board selector not available")
+            return
+            
+        var selected_index = ui_manager.enemy_board_selector.selected
+        var board_names = EnemyBoards.get_enemy_board_names()
         
-    var selected_index = ui_manager.enemy_board_selector.selected
-    var board_names = EnemyBoards.get_enemy_board_names()
-    
-    if selected_index < 0 or selected_index >= board_names.size():
-        print("Error: Invalid enemy board selection")
-        return
-        
-    var selected_board_name = board_names[selected_index]
-    combat_manager.start_combat(selected_board_name)
+        if selected_index < 0 or selected_index >= board_names.size():
+            print("Error: Invalid enemy board selection")
+            return
+            
+        var selected_board_name = board_names[selected_index]
+        combat_manager.start_combat(selected_board_name)
 
 # Combat view toggle function removed - now showing combined result view only
 
@@ -714,6 +795,34 @@ func create_stat_modification_buff(buff_id: String, display_name: String, attack
     buff.duration = Buff.Duration.PERMANENT  # Use proper enum value
     buff.stackable = false
     return buff
+
+func _sync_board_state_to_network():
+    """Sync the current board state to the network"""
+    var board_container = ui_manager.get_board_container()
+    var board_minions = []
+    
+    print("_sync_board_state_to_network called - checking board children:")
+    # Get all minions on the board in order
+    for child in board_container.get_children():
+        print("  Child: ", child.name, " has_meta('card_id'): ", child.has_meta("card_id"))
+        if child.name != "PlayerBoardLabel" and child.has_meta("card_id"):
+            var card_id = child.get_meta("card_id")
+            board_minions.append(card_id)
+            print("    Added card_id: ", card_id)
+    
+    print("Board minions to sync: ", board_minions)
+    
+    # Send board state to host
+    if NetworkManager.is_host:
+        # Host updates directly
+        print("Host updating board state directly")
+        NetworkManager.update_board_state(GameState.local_player_id, board_minions)
+    else:
+        # Client sends to host
+        print("Client sending board state to host")
+        NetworkManager.update_board_state.rpc_id(GameState.host_player_id, GameState.local_player_id, board_minions)
+    
+    print("Synced board state: ", board_minions)
 
 # === Test functions removed for GameState migration completion ===
 # Will implement proper testing system later

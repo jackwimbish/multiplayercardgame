@@ -16,32 +16,159 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 color = Color(0.15, 0.1, 0.1, 1)
 
-[node name="VBoxContainer" type="VBoxContainer" parent="."]
+[node name="MainContainer" type="VBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -300.0
-offset_top = -200.0
-offset_right = 300.0
-offset_bottom = 200.0
-alignment = 1
+offset_left = -400.0
+offset_top = -300.0
+offset_right = 400.0
+offset_bottom = 300.0
 
-[node name="StatusLabel" type="Label" parent="VBoxContainer"]
+[node name="TitleLabel" type="Label" parent="MainContainer"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_font_sizes/font_size = 24
-text = "Multiplayer Lobby
-
-[Coming Soon]
-
-Multiplayer functionality will be implemented in Phase 3."
+theme_override_font_sizes/font_size = 36
+text = "Multiplayer Lobby"
 horizontal_alignment = 1
-vertical_alignment = 1
 
-[node name="BackButton" type="Button" parent="VBoxContainer"]
+[node name="HSeparator" type="HSeparator" parent="MainContainer"]
+layout_mode = 2
+
+[node name="ModeSelection" type="HBoxContainer" parent="MainContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="HostButton" type="Button" parent="MainContainer/ModeSelection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Host Game"
+
+[node name="JoinButton" type="Button" parent="MainContainer/ModeSelection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Join Game"
+
+[node name="ConnectionContainer" type="VBoxContainer" parent="MainContainer"]
+layout_mode = 2
+visible = false
+
+[node name="ConnectionTitle" type="Label" parent="MainContainer/ConnectionContainer"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 20
+text = "Connection Settings"
+horizontal_alignment = 1
+
+[node name="HostContainer" type="VBoxContainer" parent="MainContainer/ConnectionContainer"]
+layout_mode = 2
+
+[node name="PortContainer" type="HBoxContainer" parent="MainContainer/ConnectionContainer/HostContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="PortLabel" type="Label" parent="MainContainer/ConnectionContainer/HostContainer/PortContainer"]
+layout_mode = 2
+text = "Port:"
+
+[node name="PortInput" type="SpinBox" parent="MainContainer/ConnectionContainer/HostContainer/PortContainer"]
+layout_mode = 2
+min_value = 1024.0
+max_value = 65535.0
+value = 9999.0
+
+[node name="CreateHostButton" type="Button" parent="MainContainer/ConnectionContainer/HostContainer"]
+layout_mode = 2
+text = "Create Host"
+
+[node name="JoinContainer" type="VBoxContainer" parent="MainContainer/ConnectionContainer"]
+layout_mode = 2
+
+[node name="IPContainer" type="HBoxContainer" parent="MainContainer/ConnectionContainer/JoinContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="IPLabel" type="Label" parent="MainContainer/ConnectionContainer/JoinContainer/IPContainer"]
+layout_mode = 2
+text = "Host IP:"
+
+[node name="IPInput" type="LineEdit" parent="MainContainer/ConnectionContainer/JoinContainer/IPContainer"]
+layout_mode = 2
+custom_minimum_size = Vector2(200, 0)
+placeholder_text = "127.0.0.1"
+text = "127.0.0.1"
+
+[node name="JoinPortContainer" type="HBoxContainer" parent="MainContainer/ConnectionContainer/JoinContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="JoinPortLabel" type="Label" parent="MainContainer/ConnectionContainer/JoinContainer/JoinPortContainer"]
+layout_mode = 2
+text = "Port:"
+
+[node name="JoinPortInput" type="SpinBox" parent="MainContainer/ConnectionContainer/JoinContainer/JoinPortContainer"]
+layout_mode = 2
+min_value = 1024.0
+max_value = 65535.0
+value = 9999.0
+
+[node name="ConnectButton" type="Button" parent="MainContainer/ConnectionContainer/JoinContainer"]
+layout_mode = 2
+text = "Connect"
+
+[node name="StatusContainer" type="VBoxContainer" parent="MainContainer"]
+layout_mode = 2
+visible = false
+
+[node name="StatusLabel" type="Label" parent="MainContainer/StatusContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 18
+text = "Status: Waiting for connection..."
+horizontal_alignment = 1
+
+[node name="PlayersContainer" type="VBoxContainer" parent="MainContainer"]
+layout_mode = 2
+visible = false
+
+[node name="PlayersTitle" type="Label" parent="MainContainer/PlayersContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Connected Players"
+horizontal_alignment = 1
+
+[node name="PlayersList" type="VBoxContainer" parent="MainContainer/PlayersContainer"]
+layout_mode = 2
+
+[node name="GameControls" type="HBoxContainer" parent="MainContainer"]
+layout_mode = 2
+visible = false
+alignment = 1
+
+[node name="ReadyButton" type="Button" parent="MainContainer/GameControls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Ready"
+
+[node name="StartGameButton" type="Button" parent="MainContainer/GameControls"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "Start Game"
+disabled = true
+
+[node name="BackContainer" type="HBoxContainer" parent="MainContainer"]
+layout_mode = 2
+alignment = 1
+
+[node name="DisconnectButton" type="Button" parent="MainContainer/BackContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "Disconnect"
+visible = false
+
+[node name="BackButton" type="Button" parent="MainContainer/BackContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
 text = "Back to Menu" 

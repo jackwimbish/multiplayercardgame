@@ -14,7 +14,7 @@ extends Control
 # Mode descriptions
 const PRACTICE_DESCRIPTION = "[b]Practice Mode[/b]\n\nPlay against AI opponents to learn the game mechanics. Perfect for trying new strategies and getting familiar with the cards.\n\n• Single player\n• AI opponents\n• No time pressure\n• Full access to all features"
 
-const MULTIPLAYER_DESCRIPTION = "[b]Multiplayer Mode[/b]\n\nPlay against other human players online. Test your skills in competitive matches.\n\n• Online play\n• Real opponents\n• Ranking system\n• Tournaments\n\n[color=orange]Coming Soon![/color]"
+const MULTIPLAYER_DESCRIPTION = "[b]Multiplayer Mode[/b]\n\nPlay against other human players online. Test your skills in competitive matches.\n\n• Online play\n• Real opponents\n• Host or join games\n• Ready system for coordination\n\n[color=green]Available Now![/color]"
 
 const DEFAULT_DESCRIPTION = "[b]OpenBattlefields[/b]\n\nChoose your game mode to begin playing. Hover over the buttons to learn more about each mode."
 
@@ -46,9 +46,9 @@ func setup_ui():
     
     if multiplayer_button:
         multiplayer_button.text = "Multiplayer Mode"
-        # Disable multiplayer for now
-        multiplayer_button.disabled = true
-        multiplayer_button.tooltip_text = "Coming in a future update!"
+        # Enable multiplayer - Phase 1 implementation ready
+        multiplayer_button.disabled = false
+        multiplayer_button.tooltip_text = "Play against other players online!"
     
     if exit_button:
         exit_button.text = "Exit Game"
@@ -96,12 +96,8 @@ func _on_practice_button_pressed():
 func _on_multiplayer_button_pressed():
     """Handle multiplayer mode button press"""
     print("Multiplayer mode selected")
-    GameModeManager.select_multiplayer_mode()
-    # Future: SceneManager.go_to_multiplayer_lobby()
-    
-    # For now, show a message
-    if mode_description:
-        mode_description.text = "[color=orange][b]Multiplayer Mode[/b]\n\nMultiplayer functionality is coming in a future update! For now, please try Practice Mode.[/color]"
+    # Go directly to multiplayer lobby
+    SceneManager.go_to_multiplayer_lobby()
 
 func _on_exit_button_pressed():
     """Handle exit button press"""
@@ -133,8 +129,7 @@ func _on_practice_button_hover():
 
 func _on_multiplayer_button_hover():
     """Show multiplayer mode description on hover"""
-    if not multiplayer_button.disabled:
-        _animate_button_hover(multiplayer_button, true)
+    _animate_button_hover(multiplayer_button, true)
     if mode_description:
         mode_description.text = MULTIPLAYER_DESCRIPTION
 
@@ -149,7 +144,7 @@ func _on_button_hover_exit():
     # Animate all buttons back to normal
     if practice_button:
         _animate_button_hover(practice_button, false)
-    if multiplayer_button and not multiplayer_button.disabled:
+    if multiplayer_button:
         _animate_button_hover(multiplayer_button, false)
     if exit_button:
         _animate_button_hover(exit_button, false)
