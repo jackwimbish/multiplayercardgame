@@ -297,9 +297,9 @@ func _on_card_clicked(card_node):
     """Forward card click events to game board"""
     forward_card_clicked.emit(card_node)
 
-func _on_card_drag_started(card_node):
+func _on_card_drag_started(card_node, offset = Vector2.ZERO):
     """Forward card drag events to game board"""
-    forward_card_drag_started.emit(card_node)
+    forward_card_drag_started.emit(card_node, offset)
 
 # Signals for forwarding events to game_board
 signal forward_card_clicked(card_node)

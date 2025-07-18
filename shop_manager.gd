@@ -369,10 +369,10 @@ func _apply_freeze_visual(card_node: Node, is_frozen: bool) -> void:
 
 # === EVENT HANDLERS ===
 
-func _on_shop_card_drag_started(card: Node) -> void:
+func _on_shop_card_drag_started(card: Node, offset = Vector2.ZERO) -> void:
 	"""Handle when a shop card drag starts"""
 	# Forward to UI manager for unified drag handling
-	ui_manager._on_card_drag_started(card)
+	ui_manager._on_card_drag_started(card, offset)
 
 # === PUBLIC INTERFACE FOR GAME_BOARD ===
 

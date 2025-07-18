@@ -217,9 +217,9 @@ func add_card_to_hand(card_id):
 
 # detect_drop_zone, get_card_origin_zone, _set_all_cards_mouse_filter moved to DragDropManager
 
-func _on_card_drag_started(card):
+func _on_card_drag_started(card, offset = Vector2.ZERO):
     # Delegate to DragDropManager
-    DragDropManager.start_drag(card)
+    DragDropManager.start_drag(card, offset)
 
 func _on_card_drag_ended(card, origin_zone: String, drop_zone: String):
     """Handle card drop events from DragDropManager"""
