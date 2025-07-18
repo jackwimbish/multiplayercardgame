@@ -40,6 +40,7 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
     if GameModeManager.is_in_multiplayer_session() and NetworkManager:
         NetworkManager.combat_started.connect(_on_multiplayer_combat_started)
         NetworkManager.combat_results_received.connect(_on_combat_results_received)
+        NetworkManager.combat_results_received_v2.connect(_on_combat_results_received_v2)
 
 # === PUBLIC INTERFACE FOR GAME_BOARD ===
 
@@ -950,7 +951,10 @@ func _run_multiplayer_combat_simulation(player1_id: int, player1_board: Array, p
     var player2_name = GameState.players[player2_id].player_name if GameState.players.has(player2_id) else "Player 2"
     
     # Run combat with player boards
-    var combat_log = _simulate_multiplayer_combat(player1_board, player2_board, player1_name, player2_name, rng)
+    var combat_result = _simulate_multiplayer_combat(player1_board, player2_board, player1_name, player2_name, rng)
+    var combat_log = combat_result["log"]
+    var player1_final = combat_result["player1_final"]
+    var player2_final = combat_result["player2_final"]
     
     # Determine damage based on combat results
     var player1_damage = 0
@@ -968,10 +972,14 @@ func _run_multiplayer_combat_simulation(player1_id: int, player1_board: Array, p
     
     print("Combat simulation complete - Player1 (", player1_name, ") takes ", player1_damage, " damage, Player2 (", player2_name, ") takes ", player2_damage, " damage")
     
-    # Broadcast results with explicit player IDs
-    NetworkManager.sync_combat_results_v2.rpc(combat_log, player1_id, player1_damage, player2_id, player2_damage)
+    # Broadcast results with explicit player IDs and final board states
+    NetworkManager.sync_combat_results_v3.rpc(
+        combat_log, 
+        player1_id, player1_damage, player1_final,
+        player2_id, player2_damage, player2_final
+    )
 
-func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, player1_name: String, player2_name: String, rng: RandomNumberGenerator) -> Array:
+func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, player1_name: String, player2_name: String, rng: RandomNumberGenerator) -> Dictionary:
     """Simulate combat between two player boards with deterministic RNG"""
     var action_log = []
     
@@ -990,25 +998,30 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     # Check for immediate win conditions (empty armies)
     if player1_board.is_empty() and player2_board.is_empty():
         action_log.append({"type": "combat_tie", "reason": "both_no_minions"})
-        return action_log
+        return {"log": action_log, "player1_final": [], "player2_final": []}
     elif player1_board.is_empty():
         action_log.append({"type": "combat_end", "winner": "player2", "reason": "player1_no_minions"})
-        return action_log
+        return {"log": action_log, "player1_final": [], "player2_final": _create_final_state(player2_board)}
     elif player2_board.is_empty():
         action_log.append({"type": "combat_end", "winner": "player1", "reason": "player2_no_minions"})
-        return action_log
+        return {"log": action_log, "player1_final": _create_final_state(player1_board), "player2_final": []}
     
     # Create minion instances from card IDs
     var player1_minions = []
     var player2_minions = []
     
+    # Track original counts for final display
+    var original_p1_count = player1_board.size()
+    var original_p2_count = player2_board.size()
+    
     for i in range(player1_board.size()):
         var card_data = CardDatabase.get_card_data(player1_board[i])
         player1_minions.append({
             "id": player1_board[i],
-            "position": i + 1,
+            "position": i,
             "attack": card_data.get("attack", 1),
             "health": card_data.get("health", 1),
+            "max_health": card_data.get("health", 1),
             "owner": player1_name
         })
     
@@ -1016,9 +1029,10 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         var card_data = CardDatabase.get_card_data(player2_board[i])
         player2_minions.append({
             "id": player2_board[i],
-            "position": i + 1,
+            "position": i,
             "attack": card_data.get("attack", 1),
             "health": card_data.get("health", 1),
+            "max_health": card_data.get("health", 1),
             "owner": player2_name
         })
     
@@ -1093,7 +1107,73 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     else:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
     
-    return action_log
+    # Create final states for all positions (including dead minions)
+    var player1_final = []
+    var player2_final = []
+    
+    # Build final states with all original positions
+    for i in range(original_p1_count):
+        var found = false
+        for minion in player1_minions:
+            if minion.position == i:
+                player1_final.append({
+                    "card_id": minion.id,
+                    "position": i,
+                    "health": minion.health,
+                    "max_health": minion.max_health,
+                    "attack": minion.attack
+                })
+                found = true
+                break
+        if not found:
+            # This position had a minion that died
+            player1_final.append({
+                "card_id": player1_board[i],
+                "position": i,
+                "health": 0,
+                "max_health": CardDatabase.get_card_data(player1_board[i]).get("health", 1),
+                "attack": CardDatabase.get_card_data(player1_board[i]).get("attack", 1)
+            })
+    
+    # Same for player 2
+    for i in range(original_p2_count):
+        var found = false
+        for minion in player2_minions:
+            if minion.position == i:
+                player2_final.append({
+                    "card_id": minion.id,
+                    "position": i,
+                    "health": minion.health,
+                    "max_health": minion.max_health,
+                    "attack": minion.attack
+                })
+                found = true
+                break
+        if not found:
+            # This position had a minion that died
+            player2_final.append({
+                "card_id": player2_board[i],
+                "position": i,
+                "health": 0,
+                "max_health": CardDatabase.get_card_data(player2_board[i]).get("health", 1),
+                "attack": CardDatabase.get_card_data(player2_board[i]).get("attack", 1)
+            })
+    
+    return {"log": action_log, "player1_final": player1_final, "player2_final": player2_final}
+
+func _create_final_state(board: Array) -> Array:
+    """Create final state for a board with no combat (all minions at full health)"""
+    var final_state = []
+    for i in range(board.size()):
+        var card_data = CardDatabase.get_card_data(board[i])
+        final_state.append({
+            "card_id": board[i],
+            "position": i,
+            "health": card_data.get("health", 1),
+            "max_health": card_data.get("health", 1),
+            "attack": card_data.get("attack", 1)
+        })
+    return final_state
 
 func _on_combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int) -> void:
     """Handle combat results broadcast from host"""
@@ -1120,3 +1200,118 @@ func _show_multiplayer_combat_log(combat_log: Array) -> void:
         ui_manager.combat_log_display.clear()
         ui_manager.combat_log_display.append_text(formatted_log)
         ui_manager.combat_log_display.visible = true
+
+func _on_combat_results_received_v2(combat_log: Array, player1_id: int, player1_damage: int, player2_id: int, player2_damage: int, final_states: Dictionary) -> void:
+    """Handle combat results with final board states for visualization"""
+    print("Combat results v2 received - P1 (", player1_id, ") damage: ", player1_damage, ", P2 (", player2_id, ") damage: ", player2_damage)
+    
+    # Display the combat log
+    _show_multiplayer_combat_log(combat_log)
+    
+    # Update health displays
+    ui_manager.update_health_displays()
+    
+    # Display the final board states
+    _display_multiplayer_final_boards(final_states)
+
+func _display_multiplayer_final_boards(final_states: Dictionary) -> void:
+    """Display final board states for both players after multiplayer combat"""
+    var player1_id = final_states.get("player1_id")
+    var player1_final = final_states.get("player1_final", [])
+    var player2_id = final_states.get("player2_id") 
+    var player2_final = final_states.get("player2_final", [])
+    
+    # Determine which board is ours and which is the opponent's
+    var our_final: Array
+    var opponent_final: Array
+    var opponent_name: String
+    
+    if player1_id == GameState.local_player_id:
+        our_final = player1_final
+        opponent_final = player2_final
+        var opponent = GameState.players.get(player2_id)
+        opponent_name = opponent.player_name if opponent else "Opponent"
+    else:
+        our_final = player2_final
+        opponent_final = player1_final
+        var opponent = GameState.players.get(player1_id)
+        opponent_name = opponent.player_name if opponent else "Opponent"
+    
+    # Display our board in PlayerBoard area
+    _display_final_player_board_multiplayer(our_final)
+    
+    # Display opponent's board in ShopArea
+    _display_final_opponent_board_multiplayer(opponent_final, opponent_name)
+
+func _display_final_player_board_multiplayer(final_minions: Array) -> void:
+    """Display our final board state with damaged/dead minions"""
+    # Hide original minions
+    for child in main_layout.get_node("PlayerBoard").get_children():
+        if child.name != "PlayerBoardLabel":
+            child.visible = false
+    
+    # Show final state for each position
+    for minion_state in final_minions:
+        var result_card = _create_multiplayer_result_card(minion_state, true)
+        main_layout.get_node("PlayerBoard").add_child(result_card)
+
+func _display_final_opponent_board_multiplayer(final_minions: Array, opponent_name: String) -> void:
+    """Display opponent's final board state with damaged/dead minions"""
+    # Update shop area label
+    main_layout.get_node("ShopArea/ShopAreaLabel").text = "%s's Final Board State" % opponent_name
+    main_layout.get_node("ShopArea/ShopAreaLabel").add_theme_color_override("font_color", Color.RED)
+    
+    # Clear any existing cards
+    _clear_enemy_board_from_shop_area()
+    
+    # Show final state for each position
+    for minion_state in final_minions:
+        var result_card = _create_multiplayer_result_card(minion_state, false)
+        main_layout.get_node("ShopArea").add_child(result_card)
+
+func _create_multiplayer_result_card(minion_state: Dictionary, is_player: bool) -> Control:
+    """Create a card showing the final state of a minion"""
+    var card_id = minion_state.get("card_id", "")
+    var position = minion_state.get("position", 0)
+    var health = minion_state.get("health", 0)
+    var max_health = minion_state.get("max_health", 1)
+    var attack = minion_state.get("attack", 1)
+    
+    # Get base card data
+    var card_data = CardDatabase.get_card_data(card_id).duplicate()
+    if card_data.is_empty():
+        print("Warning: Could not find card data for ", card_id)
+        return Control.new()
+    
+    # Update stats to show final combat state
+    card_data["attack"] = attack
+    card_data["health"] = health
+    
+    # Create card visual
+    var result_card = CardFactory.create_card(card_data, card_id)
+    var owner_prefix = "Player" if is_player else "Enemy"
+    result_card.name = "%sResult_%d" % [owner_prefix, position]
+    
+    # Make card non-interactive
+    result_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    # Apply visual state based on health
+    if health <= 0:
+        # Dead minion - grey with red health
+        result_card.modulate = Color(0.4, 0.4, 0.4, 0.8)
+        # Make health text red
+        var stats_label = result_card.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+        if stats_label:
+            stats_label.add_theme_color_override("font_color", Color.RED)
+    elif health < max_health:
+        # Damaged minion - yellow/orange tint
+        result_card.modulate = Color(1.0, 0.8, 0.4, 1.0)
+    else:
+        # Undamaged minion - normal appearance
+        result_card.modulate = Color.WHITE
+    
+    # Add enemy tint if not player's card
+    if not is_player:
+        result_card.modulate = result_card.modulate * Color(1.0, 0.85, 0.85, 1.0)
+    
+    return result_card

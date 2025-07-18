@@ -27,6 +27,7 @@ signal network_error(message: String)
 # Combat events
 signal combat_started(combat_data: Dictionary)
 signal combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int)
+signal combat_results_received_v2(combat_log: Array, player1_id: int, player1_damage: int, player2_id: int, player2_damage: int, final_states: Dictionary)
 
 func _ready():
     print("NetworkManager initialized")
@@ -417,6 +418,31 @@ func sync_combat_results_v2(combat_log: Array, player1_id: int, player1_damage: 
     
     # Emit signal for UI update - now the UI will need to determine which damage belongs to which player
     combat_results_received.emit(combat_log, player1_damage, player2_damage)
+
+@rpc("authority", "call_local", "reliable")
+func sync_combat_results_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array):
+    """Broadcast combat results with final board states for visualization"""
+    print("NetworkManager: Combat results v3 - Player ", player1_id, " takes ", player1_damage, " damage, Player ", player2_id, " takes ", player2_damage, " damage")
+    
+    # Apply damage to specific players
+    if player1_damage > 0 and GameState.players.has(player1_id):
+        print("NetworkManager: Applying ", player1_damage, " damage to player ", player1_id, " (", GameState.players[player1_id].player_name, ")")
+        GameState.players[player1_id].player_health -= player1_damage
+    
+    if player2_damage > 0 and GameState.players.has(player2_id):
+        print("NetworkManager: Applying ", player2_damage, " damage to player ", player2_id, " (", GameState.players[player2_id].player_name, ")")
+        GameState.players[player2_id].player_health -= player2_damage
+    
+    # Store final board states for visualization
+    var final_states = {
+        "player1_id": player1_id,
+        "player1_final": player1_final,
+        "player2_id": player2_id,
+        "player2_final": player2_final
+    }
+    
+    # Emit signal with final states for CombatManager to display
+    combat_results_received_v2.emit(combat_log, player1_id, player1_damage, player2_id, player2_damage, final_states)
 
 # === UTILITY FUNCTIONS ===
 
