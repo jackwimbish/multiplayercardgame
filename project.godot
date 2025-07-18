@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 GameState="*res://game_state.gd"
 CardFactory="*res://card_factory.gd"
+DragDropManager="*res://drag_drop_manager.gd"
 
 [display]
 

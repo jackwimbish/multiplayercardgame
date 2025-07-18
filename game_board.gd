@@ -3,7 +3,7 @@ extends Control
 const DEFAULT_PORT = 9999
 const ShopManagerScript = preload("res://shop_manager.gd")
 const CombatManagerScript = preload("res://combat_manager.gd")
-var dragged_card = null
+# dragged_card removed - now tracked by DragDropManager
 
 # Core game state is now managed by GameState singleton
 # Access via GameState.current_turn, GameState.current_gold, etc.
@@ -22,19 +22,25 @@ var combat_manager: CombatManagerScript
 # Note: Hand/board size tracking and UI constants moved to UIManager
 
 func _ready():
+    # Add to game_board group for CardFactory access
+    add_to_group("game_board")
+    
     # Note: UI setup is now handled by UIManager
     # Connect to GameState signals for game logic updates (UI signals handled by UIManager)
     GameState.game_over.connect(_on_game_over)
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
-    
+
     # Initialize CombatManager with ShopManager reference for auto-refresh
     combat_manager = CombatManagerScript.new(ui_manager, $MainLayout, shop_manager)
     
     # Connect UI signals to game logic
     ui_manager.forward_card_clicked.connect(_on_card_clicked)
     ui_manager.forward_card_drag_started.connect(_on_card_drag_started)
+    
+    # Connect DragDropManager signals
+    DragDropManager.card_drag_ended.connect(_on_card_drag_ended)
     
     # Initialize game systems
     shop_manager.refresh_shop()
@@ -48,11 +54,10 @@ func _on_card_clicked(card_node):
     if GameState.current_mode == GameState.GameMode.COMBAT:
         return
         
-    var shop_area = $MainLayout/ShopArea
     var card_id = card_node.name  # Assuming card_node.name is the card ID
     
     # Check if this is a shop card and if we can afford it
-    if card_node.get_parent() == shop_area:
+    if ui_manager.is_card_in_shop(card_node):
         var card_data = CardDatabase.get_card_data(card_id)
         var cost = card_data.get("cost", 3)
         
@@ -90,12 +95,9 @@ func add_card_to_hand_direct(card_id: String):
     """Add a card directly to hand (delegated to ShopManager for purchase logic)"""
     # For purchases, delegate to ShopManager; for other uses, create card directly
     var card_data = CardDatabase.get_card_data(card_id)
-    var new_card = CardFactory.create_card(card_data, card_id)
+    var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started)
-    
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
 
 func add_generated_card_to_hand(card_id: String) -> bool:
@@ -109,12 +111,9 @@ func add_generated_card_to_hand(card_id: String) -> bool:
         print("Cannot add generated card - card not found: ", card_id)
         return false
     
-    var new_card = CardFactory.create_card(card_data, card_id)
+    var new_card = CardFactory.create_interactive_card(card_data, card_id)
     
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started)
-    
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count()
     
     print("Added generated card to hand: ", card_data.get("name", "Unknown"))
@@ -124,37 +123,7 @@ func add_generated_card_to_hand(card_id: String) -> bool:
 
 # calculate_base_gold_for_turn() and start_new_turn() now in GameState singleton
 
-func update_ui_displays():
-    """Update all UI elements to reflect current game state"""
-    # Update turn and gold displays (with null checks)
-    var turn_label = get_node_or_null("MainLayout/TopUI/TurnLabel")
-    if turn_label:
-        turn_label.text = "Turn: " + str(GameState.current_turn)
-    
-    var gold_text = "Gold: " + str(GameState.current_gold) + "/" + str(GameState.player_base_gold)
-    if GameState.bonus_gold > 0:
-        gold_text += " (+" + str(GameState.bonus_gold) + ")"
-    
-    var gold_label = get_node_or_null("MainLayout/TopUI/GoldLabel")
-    if gold_label:
-        gold_label.text = gold_text
-        
-    var shop_tier_label = get_node_or_null("MainLayout/TopUI/ShopTierLabel")
-    if shop_tier_label:
-        shop_tier_label.text = "Shop Tier: " + str(GameState.shop_tier)
-    
-    # Update upgrade button text with current cost
-    var upgrade_button = get_node_or_null("MainLayout/TopUI/UpgradeShopButton")
-    if upgrade_button:
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if upgrade_cost > 0:
-            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-        else:
-            upgrade_button.text = "Max Tier"
-    
-    # Update hand and board counts
-    update_hand_count()
-    update_board_count()
+# update_ui_displays removed - now handled by UIManager.update_all_game_displays()
 
 # All gold and tavern management functions moved to GameState singleton:
 # - spend_gold(), can_afford(), increase_base_gold(), add_bonus_gold(), gain_gold()
@@ -166,106 +135,21 @@ func update_ui_displays():
 func add_card_to_hand(card_id):
     # The rest of the function is the same as before
     var data = CardDatabase.get_card_data(card_id)
-    var new_card = CardFactory.create_card(data, card_id)
+    var new_card = CardFactory.create_interactive_card(data, card_id)
     
-    new_card.card_clicked.connect(_on_card_clicked)
-    new_card.drag_started.connect(_on_card_drag_started) # Add this
     #new_card.dropped.connect(_on_card_dropped)
-    $MainLayout/PlayerHand.add_child(new_card)
+    ui_manager.get_hand_container().add_child(new_card)
     update_hand_count() # Update the hand count display
 
-func detect_drop_zone(global_pos: Vector2) -> String:
-    """Detect which zone a card is being dropped into"""
-    # Get the full container rectangles (including labels and empty space)
-    var hand_rect = $MainLayout/PlayerHand.get_global_rect()
-    var board_rect = $MainLayout/PlayerBoard.get_global_rect()
-    var shop_rect = $MainLayout/ShopArea.get_global_rect()
-    
-    # Expand hand area to make it easier to drop into, especially upward toward center
-    var expanded_hand_rect = Rect2(
-        hand_rect.position.x - 30,  # 30 pixels left
-        hand_rect.position.y - 100, # 100 pixels up (extends well toward center)
-        hand_rect.size.x + 60,      # 30 pixels on each side (left + right)
-        hand_rect.size.y + 130      # 100 pixels up + 30 pixels down
-    )
-    
-    if expanded_hand_rect.has_point(global_pos):
-        return "hand"
-    elif board_rect.has_point(global_pos):
-        return "board"
-    elif shop_rect.has_point(global_pos):
-        return "shop"
-    else:
-        return "invalid"
-
-func get_card_origin_zone(card) -> String:
-    """Determine which zone a card originated from"""
-    # Check if card is in shop (skip the ShopAreaLabel)
-    for shop_card in $MainLayout/ShopArea.get_children():
-        if shop_card == card and shop_card.name != "ShopAreaLabel":
-            return "shop"
-    
-    # Check if card is in hand
-    for hand_card in $MainLayout/PlayerHand.get_children():
-        if hand_card == card:
-            return "hand"
-    
-    # Check if card is on board
-    for board_card in $MainLayout/PlayerBoard.get_children():
-        if board_card == card and board_card.name != "PlayerBoardLabel":
-            return "board"
-    
-    return "unknown"
-
-func _set_all_cards_mouse_filter(filter_mode: int, exclude_card = null):
-    """Set mouse filter for all cards in hand, board, and shop (optionally excluding one card)"""
-    # Cards in hand
-    for hand_card in $MainLayout/PlayerHand.get_children():
-        if hand_card != exclude_card:
-            hand_card.mouse_filter = filter_mode
-    
-    # Cards on board  
-    for board_card in $MainLayout/PlayerBoard.get_children():
-        if board_card != exclude_card and board_card.name != "PlayerBoardLabel":
-            board_card.mouse_filter = filter_mode
-    
-    # Cards in shop (skip the ShopAreaLabel)
-    for shop_card in $MainLayout/ShopArea.get_children():
-        if shop_card != exclude_card and shop_card.name != "ShopAreaLabel":
-            shop_card.mouse_filter = filter_mode
+# detect_drop_zone, get_card_origin_zone, _set_all_cards_mouse_filter moved to DragDropManager
 
 func _on_card_drag_started(card):
-    dragged_card = card # Keep track of the dragged card
-    card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-    
-    # Store the card's origin zone for drop handling
-    var origin_zone = get_card_origin_zone(card)
-    card.set_meta("origin_zone", origin_zone)
-    print(card.name, " started dragging from ", origin_zone)
-    
-    # Set all other cards to ignore mouse events during dragging
-    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_IGNORE, card)
-    
-    # "Lift" the card out of the container by making it a child of the main board
-    card.reparent(self)
-    # Ensure the dragged card renders on top of everything else
-    card.move_to_front()
+    # Delegate to DragDropManager
+    DragDropManager.start_drag(card)
 
-func _on_card_dropped(card):
-    var origin_zone = card.get_meta("origin_zone", "unknown")
-    var drop_zone = detect_drop_zone(card.global_position)
-    
+func _on_card_drag_ended(card, origin_zone: String, drop_zone: String):
+    """Handle card drop events from DragDropManager"""
     print(card.name, " dropped from ", origin_zone, " to ", drop_zone, " at position ", card.global_position)
-    
-    # Debug: print hand area bounds
-    var hand_rect = $MainLayout/PlayerHand.get_global_rect()
-    var expanded_hand_rect = Rect2(
-        hand_rect.position.x - 30,
-        hand_rect.position.y - 100,
-        hand_rect.size.x + 60,
-        hand_rect.size.y + 130
-    )
-    print("Hand area: ", hand_rect, " (expanded: ", expanded_hand_rect, ")")
     
     # Handle different drop scenarios
     match [origin_zone, drop_zone]:
@@ -290,12 +174,6 @@ func _on_card_dropped(card):
         _:
             print("Unhandled drop scenario: ", origin_zone, " -> ", drop_zone)
             _return_card_to_origin(card, origin_zone)
-    
-    # Restore mouse filters for all cards
-    card.mouse_filter = Control.MOUSE_FILTER_STOP
-    _set_all_cards_mouse_filter(Control.MOUSE_FILTER_STOP)
-    
-    dragged_card = null
 
 func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
@@ -311,7 +189,8 @@ func _handle_shop_to_hand_drop(card):
 
 func _handle_hand_reorder_drop(card):
     """Handle reordering cards within the hand"""
-    var cards_in_hand = $MainLayout/PlayerHand.get_children()
+    var hand_container = ui_manager.get_hand_container()
+    var cards_in_hand = hand_container.get_children()
     var new_index = -1
 
     # Find where to place the card based on its X position
@@ -321,14 +200,14 @@ func _handle_hand_reorder_drop(card):
             break
 
     # Put the card back into the hand container
-    card.reparent($MainLayout/PlayerHand)
+    card.reparent(hand_container)
 
     # Move it to the calculated position
     if new_index != -1:
-        $MainLayout/PlayerHand.move_child(card, new_index)
+        hand_container.move_child(card, new_index)
     else:
         # If it was dropped past the last card, move it to the end
-        $MainLayout/PlayerHand.move_child(card, $MainLayout/PlayerHand.get_child_count() - 1)
+        hand_container.move_child(card, hand_container.get_child_count() - 1)
 
 func _handle_hand_to_board_drop(card):
     """Handle playing a minion from hand to board"""
@@ -369,7 +248,8 @@ func _handle_invalid_hand_drop(card):
 
 func _handle_board_reorder_drop(card):
     """Handle reordering minions within the board"""
-    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var board_container = ui_manager.get_board_container()
+    var cards_on_board = board_container.get_children()
     var new_index = -1
 
     # Find where to place the minion based on its X position
@@ -382,14 +262,14 @@ func _handle_board_reorder_drop(card):
             break
 
     # Put the card back into the board container
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(board_container)
 
     # Move it to the calculated position
     if new_index != -1:
-        $MainLayout/PlayerBoard.move_child(card, new_index)
+        board_container.move_child(card, new_index)
     else:
         # If it was dropped past the last card, move it to the end
-        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+        board_container.move_child(card, board_container.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -425,7 +305,7 @@ func _handle_board_to_shop_drop(card):
     
     # Update displays
     update_board_count()
-    update_ui_displays()  # Update gold display
+    ui_manager.update_gold_display_detailed()  # Update gold display
     
     print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
@@ -449,15 +329,15 @@ func _return_card_to_origin(card, origin_zone: String):
 
 func _return_card_to_shop(card):
     """Return a card to the shop area"""
-    card.reparent($MainLayout/ShopArea)
+    card.reparent(ui_manager.get_shop_container())
 
 func _return_card_to_hand(card):
     """Return a card to the hand area"""
-    card.reparent($MainLayout/PlayerHand)
+    card.reparent(ui_manager.get_hand_container())
 
 func _return_card_to_board(card):
     """Return a card to the board area"""
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(ui_manager.get_board_container())
 
 # Note: _convert_shop_card_to_hand_card moved to ShopManager
 
@@ -471,7 +351,8 @@ func _find_card_data_by_name(card_name: String) -> Dictionary:
 
 func _play_minion_to_board(card):
     """Move a minion card from hand to board with proper positioning"""
-    var cards_on_board = $MainLayout/PlayerBoard.get_children()
+    var board_container = ui_manager.get_board_container()
+    var cards_on_board = board_container.get_children()
     var new_index = -1
     
     # Find where to place the minion based on its X position
@@ -484,101 +365,22 @@ func _play_minion_to_board(card):
             break
     
     # Move card to board
-    card.reparent($MainLayout/PlayerBoard)
+    card.reparent(board_container)
     
     # Position the card appropriately
     if new_index != -1:
-        $MainLayout/PlayerBoard.move_child(card, new_index)
+        board_container.move_child(card, new_index)
     else:
         # If dropped past the last card, move to end (but before label if it exists)
-        $MainLayout/PlayerBoard.move_child(card, $MainLayout/PlayerBoard.get_child_count() - 1)
+        board_container.move_child(card, board_container.get_child_count() - 1)
     
     # Update counts
     update_hand_count()
     update_board_count()
 
-func _unhandled_input(event):
-    if dragged_card: # This check is now primary
-        if event is InputEventMouseMotion:
-            dragged_card.global_position = get_global_mouse_position() - dragged_card.drag_offset
-            # Update visual feedback during drag
-            _update_drop_zone_feedback()
+# _unhandled_input removed - now handled by DragDropManager
 
-        if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-            # Clear visual feedback before dropping
-            _clear_drop_zone_feedback()
-            # Manually call the drop function when the mouse is released anywhere
-            _on_card_dropped(dragged_card)
-
-func _update_drop_zone_feedback():
-    """Update visual feedback for valid drop zones during dragging"""
-    if not dragged_card:
-        return
-    
-    var origin_zone = dragged_card.get_meta("origin_zone", "unknown")
-    var current_drop_zone = detect_drop_zone(get_global_mouse_position())
-    
-    # Clear all feedback first
-    _clear_drop_zone_feedback()
-    
-    # Show feedback based on origin and current position
-    match [origin_zone, current_drop_zone]:
-        ["shop", "hand"]:
-            # Valid purchase zone
-            _highlight_container($MainLayout/PlayerHand, Color.GREEN)
-        ["hand", "hand"]:
-            # Valid reorder zone
-            _highlight_container($MainLayout/PlayerHand, Color.BLUE)
-        ["hand", "board"]:
-            # Valid minion play zone (check if it's actually a minion)
-            if _is_dragged_card_minion():
-                _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
-            else:
-                _highlight_container($MainLayout/PlayerBoard, Color.RED)
-        ["board", "board"]:
-            # Valid minion reorder zone
-            _highlight_container($MainLayout/PlayerBoard, Color.CYAN)
-        ["board", "hand"]:
-            # Invalid - minions cannot be returned to hand from board
-            _highlight_container($MainLayout/PlayerHand, Color.RED)
-        ["board", "shop"]:
-            # Valid selling zone (only during shop phase)
-            if GameState.current_mode == GameState.GameMode.SHOP:
-                _highlight_container($MainLayout/ShopArea, Color.YELLOW)
-            else:
-                _highlight_container($MainLayout/ShopArea, Color.RED)
-        ["shop", "board"], ["shop", "shop"]:
-            # Invalid zones for shop cards
-            _highlight_invalid_zone(current_drop_zone)
-
-func _clear_drop_zone_feedback():
-    """Clear all visual feedback for drop zones"""
-    _remove_highlight($MainLayout/PlayerHand)
-    _remove_highlight($MainLayout/PlayerBoard)
-    _remove_highlight($MainLayout/ShopArea)
-
-func _highlight_container(container: Container, color: Color):
-    """Add visual highlight to a container"""
-    # More visible modulation-based highlight
-    container.modulate = Color(color.r, color.g, color.b, 0.7)
-
-func _remove_highlight(container: Container):
-    """Remove visual highlight from a container"""
-    container.modulate = Color.WHITE
-
-func _highlight_invalid_zone(zone_name: String):
-    """Show feedback for invalid drop zones"""
-    # For now, just ensure other zones aren't highlighted
-    pass
-
-func _is_dragged_card_minion() -> bool:
-    """Check if the currently dragged card is a minion"""
-    if not dragged_card:
-        return false
-    
-    var card_name = dragged_card.get_node("VBoxContainer/CardName").text
-    var card_data = _find_card_data_by_name(card_name)
-    return card_data.get("type", "") == "minion"
+# Visual feedback functions moved to DragDropManager
 
 
 func _cast_spell(spell_card, card_data: Dictionary):
@@ -749,6 +551,10 @@ func _on_return_to_shop_button_pressed() -> void:
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
     shop_manager.handle_refresh_button_pressed()
+
+func _on_freeze_button_pressed() -> void:
+    """Handle freeze button press"""
+    shop_manager.handle_freeze_button_pressed()
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""

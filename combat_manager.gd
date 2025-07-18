@@ -347,6 +347,7 @@ func _hide_shop_elements() -> void:
 	
 	# Hide shop-related buttons
 	main_layout.get_node("TopUI/RefreshShopButton").visible = false
+	main_layout.get_node("TopUI/FreezeButton").visible = false
 	main_layout.get_node("TopUI/UpgradeShopButton").visible = false
 
 func _show_shop_elements() -> void:
@@ -357,6 +358,7 @@ func _show_shop_elements() -> void:
 	
 	# Show shop-related buttons
 	main_layout.get_node("TopUI/RefreshShopButton").visible = true
+	main_layout.get_node("TopUI/FreezeButton").visible = true
 	main_layout.get_node("TopUI/UpgradeShopButton").visible = true
 
 func _display_enemy_board_in_shop_area(enemy_board_name: String) -> void:
