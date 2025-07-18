@@ -60,7 +60,8 @@ func _connect_shop_to_player_signals():
         var local_player = GameState.get_local_player()
         if local_player:
             local_player.shop_cards_changed.connect(shop_manager._on_player_shop_changed)
-            local_player.gold_changed.connect(ui_manager._on_gold_changed)
+            # Create wrapper for gold_changed signal (PlayerState emits 1 param, UI expects 2)
+            local_player.gold_changed.connect(func(new_gold): ui_manager._on_gold_changed(new_gold, GameState.GLOBAL_GOLD_MAX))
             print("Connected shop manager to player shop_cards_changed signal")
             print("Connected UI manager to player gold_changed signal")
 
