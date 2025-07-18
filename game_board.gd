@@ -25,6 +25,9 @@ func _ready():
     # Add to game_board group for CardFactory access
     add_to_group("game_board")
     
+    # Initialize GameState for the current game mode
+    GameState.initialize_game_state()
+    
     # Setup game mode specific features
     setup_game_mode()
     
@@ -70,7 +73,16 @@ func add_mode_indicator():
     # Create mode indicator label
     var mode_label = Label.new()
     mode_label.name = "ModeIndicator"
-    mode_label.text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    var mode_text = GameModeManager.get_mode_name() + " • " + GameModeManager.get_player_name()
+    
+    # Add host indicator in multiplayer
+    if GameModeManager.is_in_multiplayer_session():
+        if GameState.is_host():
+            mode_text += " (Host)"
+        else:
+            mode_text += " (Client)"
+    
+    mode_label.text = mode_text
     mode_label.size_flags_horizontal = Control.SIZE_SHRINK_END
     
     # Style the label

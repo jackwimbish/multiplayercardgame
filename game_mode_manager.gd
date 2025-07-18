@@ -11,6 +11,10 @@ var current_mode: GameMode = GameMode.PRACTICE
 var is_host: bool = false
 var player_name: String = "Player"
 
+# Multiplayer session state
+var is_multiplayer_session: bool = false
+var session_id: String = ""
+
 # Signals for mode changes
 signal mode_selected(mode: GameMode)
 signal game_started()
@@ -25,13 +29,17 @@ func select_practice_mode():
     """Select practice mode and emit signal"""
     current_mode = GameMode.PRACTICE
     is_host = false  # Not applicable for practice
+    is_multiplayer_session = false
+    session_id = ""
     print("Practice mode selected")
     mode_selected.emit(GameMode.PRACTICE)
 
 func select_multiplayer_mode():
     """Select multiplayer mode and emit signal"""
     current_mode = GameMode.MULTIPLAYER
-    print("Multiplayer mode selected")
+    is_multiplayer_session = true
+    session_id = "mp_" + str(Time.get_ticks_msec())
+    print("Multiplayer mode selected - Session ID: ", session_id)
     mode_selected.emit(GameMode.MULTIPLAYER)
 
 func start_game():
@@ -64,6 +72,20 @@ func get_mode_name() -> String:
         _:
             return "Unknown Mode"
 
+func is_in_multiplayer_session() -> bool:
+    """Check if currently in a multiplayer session"""
+    return is_multiplayer_session
+
+func get_session_id() -> String:
+    """Get current session ID"""
+    return session_id
+
+func end_multiplayer_session():
+    """End the current multiplayer session"""
+    is_multiplayer_session = false
+    session_id = ""
+    print("Multiplayer session ended")
+
 # === SETTINGS FUNCTIONS (for future use) ===
 
 func set_player_name(name: String):
@@ -75,4 +97,8 @@ func set_player_name(name: String):
 
 func get_player_name() -> String:
     """Get current player name"""
-    return player_name 
+    return player_name
+
+func get_network_player_name() -> String:
+    """Get unique player name for network sessions"""
+    return SettingsManager.get_unique_player_name() 

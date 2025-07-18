@@ -94,16 +94,25 @@ func go_to_main_menu():
 
 func go_to_game_board():
     """Transition to game board"""
+    # Log session info for debugging
+    if GameModeManager.is_in_multiplayer_session():
+        print("SceneManager: Transitioning to multiplayer game - Session: ", GameModeManager.get_session_id())
+    else:
+        print("SceneManager: Transitioning to practice game")
+    
     transition_to(GAME_BOARD_SCENE)
 
 func go_to_multiplayer_lobby():
-    """Transition to multiplayer lobby (future)"""
+    """Transition to multiplayer lobby"""
     transition_to(MULTIPLAYER_LOBBY_SCENE)
 
 # === SIGNAL HANDLERS ===
 
 func _on_return_to_menu_requested():
     """Handle return to menu request from GameModeManager"""
+    # Clean up multiplayer session if active
+    if GameModeManager.is_in_multiplayer_session():
+        GameModeManager.end_multiplayer_session()
     go_to_main_menu()
 
 # === UTILITY FUNCTIONS ===
