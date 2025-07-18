@@ -11,6 +11,7 @@ var ui_manager: UIManager
 # Shop state
 var current_shop_cards: Array[String] = []  # Track current shop card IDs
 var frozen_cards: Array[String] = []  # Track frozen card IDs
+var _pending_shop_update: Array = []  # Pending shop update for when returning to shop mode
 
 # Constants
 const REFRESH_COST: int = 1
@@ -27,17 +28,34 @@ func _init(shop_area_ref: Container, ui_manager_ref: UIManager):
     # Connect to GameState signals
     # Note: No longer auto-refresh on tier change - player controls when to refresh
     
+    # Connect to game mode changes to handle pending shop updates
+    if GameState:
+        GameState.game_mode_changed.connect(_on_game_mode_changed)
+    
     print("ShopManager initialized")
 
 func _on_player_shop_changed(new_shop_cards: Array):
     """Handle when player's shop cards change (from network sync)"""
     print("ShopManager: Received shop update signal with cards: ", new_shop_cards)
     if GameModeManager.is_in_multiplayer_session():
-        print("ShopManager: Updating shop display in multiplayer mode")
-        # In multiplayer, update display based on synced data
-        _update_shop_display(new_shop_cards)
+        # Only update shop display if we're in SHOP mode
+        if GameState.current_mode == GameState.GameMode.SHOP:
+            print("ShopManager: Updating shop display in multiplayer mode")
+            # In multiplayer, update display based on synced data
+            _update_shop_display(new_shop_cards)
+        else:
+            print("ShopManager: Not in SHOP mode, deferring shop update until mode changes")
+            # Store the pending shop update for when we return to shop mode
+            _pending_shop_update = new_shop_cards
     else:
         print("ShopManager: Not in multiplayer mode, ignoring shop update signal")
+
+func _on_game_mode_changed(new_mode: GameState.GameMode):
+    """Handle game mode changes to apply pending shop updates"""
+    if new_mode == GameState.GameMode.SHOP and _pending_shop_update.size() > 0:
+        print("ShopManager: Applying pending shop update after mode change")
+        _update_shop_display(_pending_shop_update)
+        _pending_shop_update.clear()
 
 
 

@@ -84,11 +84,8 @@ func start_multiplayer_combat() -> void:
         combat_seed
     )
     
-    # Switch to combat screen (no enemy board name in multiplayer)
-    switch_to_combat_mode("")
-    
-    # Combat simulation will happen via network signals
-    # The host will run the simulation in _on_multiplayer_combat_started
+    # Don't call switch_to_combat_mode here - let the phase change handle it
+    # The combat display will be handled by _on_multiplayer_combat_started
 
 func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
@@ -473,6 +470,53 @@ func _clear_enemy_board_from_shop_area() -> void:
     for child in children_to_remove:
         child.queue_free()
 
+func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array) -> void:
+    """Display the opponent's board in multiplayer combat"""
+    # Determine which board is the opponent's
+    var opponent_board: Array
+    var opponent_name: String
+    
+    if player1_id == GameState.local_player_id:
+        # We are player1, so show player2's board
+        opponent_board = player2_board
+        var opponent = GameState.players.get(player2_id)
+        opponent_name = opponent.player_name if opponent else "Opponent"
+    else:
+        # We are player2, so show player1's board
+        opponent_board = player1_board
+        var opponent = GameState.players.get(player1_id)
+        opponent_name = opponent.player_name if opponent else "Opponent"
+    
+    print("Displaying opponent board for ", opponent_name, " - Minions: ", opponent_board)
+    
+    # Update the shop area label
+    main_layout.get_node("ShopArea/ShopAreaLabel").text = "%s's Board" % opponent_name
+    main_layout.get_node("ShopArea/ShopAreaLabel").add_theme_color_override("font_color", Color.RED)
+    
+    # Clear any existing cards
+    _clear_enemy_board_from_shop_area()
+    
+    # Create visual representations of opponent's minions
+    for i in range(opponent_board.size()):
+        var card_id = opponent_board[i]
+        var card_data = CardDatabase.get_card_data(card_id).duplicate()
+        
+        if card_data.is_empty():
+            print("Warning: Could not find card data for ", card_id)
+            continue
+        
+        # Create enemy card using CardFactory
+        var enemy_card = CardFactory.create_card(card_data, card_id)
+        enemy_card.name = "EnemyMinion_%d" % i
+        
+        # Make enemy cards non-interactive
+        enemy_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        
+        # Add visual indication this is an enemy
+        enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
+        
+        main_layout.get_node("ShopArea").add_child(enemy_card)
+
 func _minimize_hand_area() -> void:
     """Minimize hand area during combat"""
     main_layout.get_node("PlayerHand").visible = false
@@ -815,15 +859,17 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
     
     # Update UI based on new mode
     if new_mode == GameState.GameMode.COMBAT:
-        if current_enemy_board_name == "":
-            # Default to first enemy board if none selected
-            current_enemy_board_name = "Tier 1 Basic"
-        
         # Hide shop elements
         _hide_shop_elements()
         
-        # Show enemy board in shop area
-        _display_enemy_board_in_shop_area(current_enemy_board_name)
+        # In multiplayer, the board display will be handled by _on_multiplayer_combat_started
+        # In practice mode, show enemy board selector
+        if not GameModeManager.is_in_multiplayer_session():
+            if current_enemy_board_name == "":
+                # Default to first enemy board if none selected
+                current_enemy_board_name = "Tier 1 Basic"
+            # Show enemy board in shop area
+            _display_enemy_board_in_shop_area(current_enemy_board_name)
         
         # Update combat UI for combat mode
         _update_combat_ui_for_combat_mode()
@@ -841,11 +887,11 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         if shop_area_label:
             shop_area_label.text = "Shop"
         
+        # Clear enemy cards from shop area BEFORE showing shop elements
+        _clear_enemy_board_from_shop_area()
+        
         # Show shop elements
         _show_shop_elements()
-        
-        # Clear enemy cards from shop area
-        _clear_enemy_board_from_shop_area()
         
         # Update combat UI for shop mode
         _update_combat_ui_for_shop_mode()
@@ -855,6 +901,19 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         
         # Update displays - turn has already advanced so values should be correct
         ui_manager.update_all_game_displays()
+        
+        # In multiplayer, force a shop refresh to ensure cards are displayed
+        # Use call_deferred to ensure UI is ready
+        if GameModeManager.is_in_multiplayer_session() and shop_manager:
+            print("CombatManager: Scheduling shop refresh after returning from combat")
+            var local_player = GameState.get_local_player()
+            if local_player:
+                print("  Local player shop cards: ", local_player.shop_cards)
+                if local_player.shop_cards.size() > 0:
+                    # Defer the shop update to next frame to ensure UI is ready
+                    shop_manager.call_deferred("_on_player_shop_changed", local_player.shop_cards)
+                else:
+                    print("  WARNING: Local player has no shop cards after turn advance!")
         
         mode_switched.emit("shop")
 
@@ -870,6 +929,9 @@ func _on_multiplayer_combat_started(combat_data: Dictionary) -> void:
     var player2_id = combat_data.get("player2_id") 
     var player2_board = combat_data.get("player2_board", [])
     var random_seed = combat_data.get("random_seed", 0)
+    
+    # Display opponent's board
+    _display_multiplayer_opponent_board(player1_id, player1_board, player2_id, player2_board)
     
     # Set up RNG with the seed
     var rng = RandomNumberGenerator.new()

@@ -694,8 +694,12 @@ func _all_players_ended_turn() -> bool:
 
 func _deal_new_shops_for_all_players():
     """Deal new shop cards for all players at turn start"""
+    print("NetworkManager: Dealing new shops for all players")
     for player_id in GameState.players.keys():
         var player = GameState.players[player_id]
+        
+        print("  Dealing shop for player ", player_id, " (", player.player_name, ")")
+        print("    Current shop cards: ", player.shop_cards)
         
         # Return current shop cards to pool
         GameState.return_cards_to_pool(player.shop_cards)
@@ -704,10 +708,13 @@ func _deal_new_shops_for_all_players():
         var shop_size = 3 + player.shop_tier
         GameState.deal_cards_to_shop(player_id, shop_size)
         
+        print("    New shop cards: ", player.shop_cards)
+        
         # Gold is already updated by GameState.start_new_turn() called in advance_turn()
         # Just ensure the player state has the correct gold value
-        print("Player ", player_id, " gold after turn advance: ", player.current_gold)
+        print("    Player gold after turn advance: ", player.current_gold)
     
+    print("NetworkManager: Syncing all player states after shop deal")
     # Sync all player states
     for player_id in GameState.players.keys():
         sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
