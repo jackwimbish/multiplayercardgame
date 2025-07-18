@@ -16,7 +16,7 @@ const PRACTICE_DESCRIPTION = "[b]Practice Mode[/b]\n\nPlay against AI opponents 
 
 const MULTIPLAYER_DESCRIPTION = "[b]Multiplayer Mode[/b]\n\nPlay against other human players online. Test your skills in competitive matches.\n\n• Online play\n• Real opponents\n• Ranking system\n• Tournaments\n\n[color=orange]Coming Soon![/color]"
 
-const DEFAULT_DESCRIPTION = "[b]Multiplayer Card Game[/b]\n\nChoose your game mode to begin playing. Hover over the buttons to learn more about each mode."
+const DEFAULT_DESCRIPTION = "[b]OpenBattlefields[/b]\n\nChoose your game mode to begin playing. Hover over the buttons to learn more about each mode."
 
 func _ready():
     print("MainMenu scene loaded")
@@ -32,7 +32,7 @@ func setup_ui():
     """Initialize UI elements and styling"""
     # Set game title
     if game_title:
-        game_title.text = "Multiplayer Card Game"
+        game_title.text = "OpenBattlefields"
     
     # Setup player name input
     if player_name_input:

@@ -37,7 +37,7 @@ layout_mode = 2
 size_flags_vertical = 6
 theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 48
-text = "Multiplayer Card Game"
+text = "OpenBattlefields"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -98,7 +98,7 @@ offset_right = -20.0
 offset_bottom = -20.0
 theme_override_font_sizes/normal_font_size = 16
 bbcode_enabled = true
-text = "[b]Multiplayer Card Game[/b]
+text = "[b]OpenBattlefields[/b]
 
 Choose your game mode to begin playing. Hover over the buttons to learn more about each mode."
 scroll_active = true
