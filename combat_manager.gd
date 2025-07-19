@@ -713,7 +713,10 @@ func format_combat_action(action: Dictionary) -> String:
     """Format a combat action for display"""
     match action.get("type", ""):
         "combat_start":
-            return "Combat begins! Player: %d minions vs Enemy: %d minions" % [action.get("player_minions", 0), action.get("enemy_minions", 0)]
+            # Handle both practice mode (player_minions/enemy_minions) and multiplayer (player1_minions/player2_minions)
+            var p1_count = action.get("player_minions", action.get("player1_minions", 0))
+            var p2_count = action.get("enemy_minions", action.get("player2_minions", 0))
+            return "Combat begins! Player: %d minions vs Enemy: %d minions" % [p1_count, p2_count]
         "attack":
             return "%s attacks %s (%d/%d vs %d/%d)" % [
                 action.get("attacker_id", "?"), 
