@@ -229,6 +229,27 @@ func request_end_turn(player_id: int):
         if _all_players_ended_turn():
             advance_turn.rpc()
 
+@rpc("any_peer", "call_remote", "reliable")
+func request_update_frozen_cards(player_id: int, frozen_card_ids: Array):
+    """Request to update a player's frozen cards (client -> host)"""
+    var sender_id = multiplayer.get_remote_sender_id()
+    print("NetworkManager: Update frozen cards request from peer ", sender_id, " - Player: ", player_id, " Frozen cards: ", frozen_card_ids)
+    print("NetworkManager: Current game phase: ", GameState.GameMode.keys()[GameState.current_mode])
+    
+    # Only host processes frozen card updates
+    if is_host:
+        if GameState.players.has(player_id):
+            var player = GameState.players[player_id]
+            var old_frozen = player.frozen_card_ids.duplicate()
+            player.frozen_card_ids = frozen_card_ids
+            print("NetworkManager: Updated frozen cards for player ", player_id, " from ", old_frozen, " to ", frozen_card_ids)
+            # Sync the updated state back to all clients
+            sync_player_state.rpc(player_id, player.to_dict())
+        else:
+            print("NetworkManager: ERROR - Player ", player_id, " not found for frozen card update")
+    else:
+        print("NetworkManager: ERROR - Non-host received frozen card update request")
+
 @rpc("any_peer", "call_local", "reliable")
 func update_board_state(player_id: int, board_minions: Array):
     """Update a player's board state when minions are played/sold/reordered"""
@@ -283,9 +304,11 @@ func sync_player_state(player_id: int, player_data: Dictionary):
         var player = GameState.players[player_id]
         var old_shop = player.shop_cards.duplicate()
         var old_gold = player.current_gold
+        var old_frozen = player.frozen_card_ids.duplicate()
         player.from_dict(player_data)
         print("NetworkManager: Updated player ", player_id, " shop from ", old_shop, " to ", player.shop_cards)
         print("NetworkManager: Updated player ", player_id, " gold from ", old_gold, " to ", player.current_gold)
+        print("NetworkManager: Updated player ", player_id, " frozen cards from ", old_frozen, " to ", player.frozen_card_ids)
         
         # If this is the local player, force UI update for gold and shop tier
         # This ensures the display updates even if the signal connection isn't working
@@ -750,12 +773,15 @@ func _all_players_ended_turn() -> bool:
 func _deal_new_shops_for_all_players():
     """Deal new shop cards for all players at turn start"""
     print("NetworkManager: Dealing new shops for all players")
+    print("NetworkManager: Current turn: ", GameState.current_turn)
+    
     for player_id in GameState.players.keys():
         var player = GameState.players[player_id]
         
         print("  Dealing shop for player ", player_id, " (", player.player_name, ")")
         print("    Current shop cards: ", player.shop_cards)
         print("    Frozen cards: ", player.frozen_card_ids)
+        print("    Shop tier: ", player.shop_tier)
         
         # Return current shop cards to pool (excluding frozen cards)
         GameState.return_cards_to_pool(player.shop_cards, player.frozen_card_ids)
@@ -765,6 +791,7 @@ func _deal_new_shops_for_all_players():
         GameState.deal_cards_to_shop(player_id, shop_size)
         
         print("    New shop cards: ", player.shop_cards)
+        print("    Frozen cards preserved: ", player.frozen_card_ids.size())
         
         # Gold is already updated by GameState.start_new_turn() called in advance_turn()
         # Just ensure the player state has the correct gold value
@@ -773,6 +800,8 @@ func _deal_new_shops_for_all_players():
     print("NetworkManager: Syncing all player states after shop deal")
     # Sync all player states
     for player_id in GameState.players.keys():
-        sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
+        var player_dict = GameState.players[player_id].to_dict()
+        print("  Syncing player ", player_id, " with frozen cards: ", player_dict.get("frozen_card_ids", []))
+        sync_player_state.rpc(player_id, player_dict)
     
     sync_card_pool.rpc(GameState.shared_card_pool) 

@@ -595,11 +595,21 @@ func prepare_for_combat_phase() -> void:
     if local_player:
         local_player.frozen_card_ids = frozen_cards.duplicate()
         print("ShopManager: Synced ", frozen_cards.size(), " frozen cards to PlayerState for next turn")
+        print("ShopManager: Frozen cards being saved: ", frozen_cards)
         
         # In multiplayer, sync the frozen cards to the server
         if GameModeManager.is_in_multiplayer_session() and NetworkManager:
-            print("ShopManager: Syncing frozen cards to server")
-            NetworkManager.sync_player_state.rpc(local_player.player_id, local_player.to_dict())
+            print("ShopManager: In multiplayer mode, syncing frozen cards to server")
+            print("ShopManager: Is host? ", NetworkManager.is_host, ", Local player ID: ", local_player.player_id, ", Host ID: ", GameState.host_player_id)
+            
+            if NetworkManager.is_host:
+                # Host can update directly and sync to all
+                print("ShopManager: Host syncing frozen cards directly")
+                NetworkManager.sync_player_state.rpc(local_player.player_id, local_player.to_dict())
+            else:
+                # Client must request the host to update their frozen cards
+                print("ShopManager: Client sending frozen cards to host: ", frozen_cards)
+                NetworkManager.request_update_frozen_cards.rpc_id(GameState.host_player_id, local_player.player_id, frozen_cards.duplicate())
 
 func restore_from_combat_phase() -> void:
     """Restore shop state when returning from combat"""

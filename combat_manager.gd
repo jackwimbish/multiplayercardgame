@@ -954,6 +954,15 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
     
     # Update UI based on new mode
     if new_mode == GameState.GameMode.COMBAT:
+        # For non-host players, prepare shop state when transitioning to combat
+        # (Host already does this in start_multiplayer_combat)
+        if GameModeManager.is_in_multiplayer_session() and not NetworkManager.is_host:
+            print("CombatManager: Non-host preparing shop for combat phase")
+            if main_layout:
+                var game_board = main_layout.get_parent()
+                if game_board and game_board.has_method("prepare_shop_for_combat"):
+                    game_board.prepare_shop_for_combat()
+        
         # Hide shop elements
         _hide_shop_elements()
         
