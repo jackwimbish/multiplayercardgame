@@ -1,6 +1,7 @@
 extends Control
 
 const DEFAULT_PORT = 9999
+# Preload manager scripts
 const ShopManagerScript = preload("res://shop_manager.gd")
 const CombatManagerScript = preload("res://combat_manager.gd")
 # dragged_card removed - now tracked by DragDropManager
@@ -14,8 +15,8 @@ signal game_over(winner: String)
 @onready var ui_manager = $MainLayout
 
 # Manager instances
-var shop_manager: ShopManagerScript
-var combat_manager: CombatManagerScript
+var shop_manager
+var combat_manager
 
 # Constants are now in GameState singleton
 
@@ -51,21 +52,17 @@ func _ready():
     DragDropManager.card_drag_ended.connect(_on_card_drag_ended)
     
     # Initialize game systems
-    shop_manager.refresh_shop()
+    # In SSOT architecture, shops are dealt by host after initialization
+    # No local shop refresh needed
     
     # Connect shop manager to player signals for multiplayer updates
     _connect_shop_to_player_signals()
 
 func _connect_shop_to_player_signals():
     """Connect shop manager to player state signals"""
-    if GameModeManager.is_in_multiplayer_session():
-        var local_player = GameState.get_local_player()
-        if local_player:
-            local_player.shop_cards_changed.connect(shop_manager._on_player_shop_changed)
-            # Create wrapper for gold_changed signal (PlayerState emits 1 param, UI expects 2)
-            local_player.gold_changed.connect(func(new_gold): ui_manager._on_gold_changed(new_gold, GameState.GLOBAL_GOLD_MAX))
-            print("Connected shop manager to player shop_cards_changed signal")
-            print("Connected UI manager to player gold_changed signal")
+    # In SSOT architecture, no signal connections needed
+    # All updates come through NetworkManager._update_local_player_display()
+    pass
 
 func setup_game_mode():
     """Setup game mode specific features"""
@@ -313,14 +310,18 @@ func _on_card_drag_ended(card, origin_zone: String, drop_zone: String):
 
 func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
-    # Delegate to ShopManager for purchase logic
-    var success = shop_manager.handle_shop_card_purchase_by_drag(card)
-    
-    if success:
-        # Purchase succeeded - clean up the dragged card node
+    if GameModeManager.is_in_multiplayer_session():
+        var drag_data = shop_manager.get_card_drag_data(card)
+        ui_manager.show_waiting_indicator("shop")
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "purchase_card",
+            drag_data
+        )
+        # Remove the dragged card visual
         card.queue_free()
     else:
-        # Return card to shop if purchase failed
+        print("Practice mode not implemented in SSOT architecture")
         _return_card_to_shop(card)
 
 func _handle_hand_reorder_drop(card):
@@ -705,20 +706,44 @@ func _on_return_to_shop_button_pressed() -> void:
 
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
-    shop_manager.handle_refresh_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        ui_manager.show_waiting_indicator("refresh_button")
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "refresh_shop",
+            {}
+        )
+    else:
+        print("Practice mode not implemented in SSOT architecture")
 
 func _on_freeze_button_pressed() -> void:
     """Handle freeze button press"""
-    shop_manager.handle_freeze_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        ui_manager.show_waiting_indicator("freeze_button")
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "toggle_freeze",
+            {}
+        )
+    else:
+        print("Practice mode not implemented in SSOT architecture")
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
-    shop_manager.handle_upgrade_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        ui_manager.show_waiting_indicator("upgrade_button")
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "upgrade_shop",
+            {}
+        )
+    else:
+        print("Practice mode not implemented in SSOT architecture")
 
 func prepare_shop_for_combat() -> void:
     """Prepare shop state before transitioning to combat"""
-    if shop_manager:
-        shop_manager.prepare_for_combat_phase()
+    # In SSOT architecture, nothing to do here - state is managed by host
+    pass
 
 # Note: End turn button removed - turns now advance automatically after combat
 # func _on_end_turn_button_pressed() -> void:

@@ -4,9 +4,7 @@
 class_name PlayerState
 extends RefCounted
 
-# Signals for state changes
-signal shop_cards_changed(new_shop_cards: Array)
-signal gold_changed(new_gold: int)
+# No signals in SSOT architecture - all updates through NetworkManager
 
 # Player identification
 var player_id: int = 0
@@ -133,22 +131,8 @@ func from_dict(data: Dictionary):
     has_ended_turn = data.get("has_ended_turn", false)
     ping_ms = data.get("ping_ms", 0)
     
-    # Emit signals if values changed
-    if old_gold != current_gold:
-        print("PlayerState: Gold changed from ", old_gold, " to ", current_gold, " - emitting signal")
-        gold_changed.emit(current_gold)
-    
-    if old_shop != shop_cards:
-        print("PlayerState: Shop changed from ", old_shop, " to ", shop_cards, " - emitting signal")
-        shop_cards_changed.emit(shop_cards)
-
-func notify_shop_changed():
-    """Manually trigger shop changed signal (for host updates)"""
-    shop_cards_changed.emit(shop_cards)
-
-func notify_gold_changed():
-    """Manually trigger gold changed signal (for host updates)"""
-    gold_changed.emit(current_gold)
+    # In SSOT architecture, NetworkManager handles all display updates
+    # No signals emitted here
 
 # === DEBUG FUNCTIONS ===
 

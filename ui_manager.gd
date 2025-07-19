@@ -351,6 +351,89 @@ func show_flash_message(message: String, duration: float = 2.5) -> void:
     
     print("Toast message: ", message)
 
+# === WAITING INDICATOR SYSTEM ===
+
+var waiting_indicators = {}
+
+func show_waiting_indicator(element_name: String):
+    """Show waiting state for UI element"""
+    waiting_indicators[element_name] = true
+    
+    match element_name:
+        "refresh_button":
+            if refresh_button:
+                refresh_button.disabled = true
+                refresh_button.text = "Refreshing..."
+        "freeze_button":
+            if freeze_button:
+                freeze_button.disabled = true
+                freeze_button.text = "Updating..."
+        "upgrade_button":
+            if upgrade_button:
+                upgrade_button.disabled = true
+                upgrade_button.text = "Upgrading..."
+        "shop":
+            # Could add a shop overlay or disable all shop cards
+            pass
+
+func hide_waiting_indicator(element_name: String):
+    """Hide waiting state for UI element"""
+    waiting_indicators.erase(element_name)
+    
+    match element_name:
+        "refresh_button":
+            if refresh_button:
+                refresh_button.disabled = false
+                update_refresh_button_text()
+        "freeze_button":
+            if freeze_button:
+                freeze_button.disabled = false
+                update_freeze_button_text()
+        "upgrade_button":
+            if upgrade_button:
+                upgrade_button.disabled = false
+                update_upgrade_button_text()
+        "shop":
+            # Remove shop overlay if added
+            pass
+
+func hide_all_waiting_indicators():
+    """Hide all waiting indicators"""
+    for element in waiting_indicators:
+        hide_waiting_indicator(element)
+    waiting_indicators.clear()
+
+func update_refresh_button_text():
+    """Update refresh button text based on cost"""
+    if refresh_button:
+        refresh_button.text = "Refresh (1)"  # REFRESH_COST
+
+func update_freeze_button_text():
+    """Update freeze button text based on state"""
+    if freeze_button:
+        var local_player = GameState.get_local_player()
+        if local_player and local_player.shop_cards.size() > 0:
+            # Check if all cards are frozen
+            var all_frozen = true
+            for card_id in local_player.shop_cards:
+                if not card_id in local_player.frozen_card_ids:
+                    all_frozen = false
+                    break
+            freeze_button.text = "Unfreeze" if all_frozen else "Freeze"
+        else:
+            freeze_button.text = "Freeze"
+
+func update_upgrade_button_text():
+    """Update upgrade button text based on tier and cost"""
+    if upgrade_button:
+        var local_player = GameState.get_local_player()
+        if local_player:
+            if local_player.shop_tier >= 6:
+                upgrade_button.text = "Max Tier"
+            else:
+                var upgrade_cost = local_player.current_tavern_upgrade_cost
+                upgrade_button.text = "Upgrade Shop (%d gold)" % upgrade_cost
+
 # === EVENT FORWARDING FOR CARD INTERACTIONS ===
 
 func _on_card_clicked(card_node):

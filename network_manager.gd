@@ -15,6 +15,10 @@ var server_port: int = DEFAULT_PORT
 var connected_players: Dictionary = {}  # peer_id -> PlayerState
 var local_player_id: int = 0
 
+# State synchronization tracking
+var _pending_state_syncs: Dictionary = {}  # player_id -> timestamp
+var _state_sync_cooldown: float = 0.1  # Minimum time between state syncs for same player
+
 # Network events
 signal player_joined(player_id: int, player_name: String)
 signal player_left(player_id: int, player_name: String)
@@ -167,6 +171,40 @@ func request_game_start():
 
 # === GAME ACTION RPCS ===
 
+@rpc("any_peer", "call_local", "reliable")
+func request_game_action(action: String, params: Dictionary):
+    """Unified endpoint for all game actions"""
+    var sender_id = multiplayer.get_remote_sender_id()
+    # If called locally by host, sender_id will be 0, so use local_player_id
+    if sender_id == 0:
+        sender_id = local_player_id
+    
+    if not is_host:
+        print("ERROR: Non-host received game action request")
+        return
+    
+    print("NetworkManager: Game action requested - Action: ", action, ", Player: ", sender_id, ", Params: ", params)
+    
+    # Process action through HostGameLogic
+    var result = HostGameLogic.process_game_action(sender_id, action, params)
+    print("NetworkManager: Action result - Success: ", result.success, ", Error: ", result.get("error", "none"))
+    
+    if result.success:
+        # Sync all affected player states
+        for player_id in result.get("state_changes", {}):
+            if GameState.players.has(player_id):
+                var state_dict = GameState.players[player_id].to_dict()
+                print("NetworkManager: Syncing state for player ", player_id, " - shop: ", state_dict.get("shop_cards", []), ", hand: ", state_dict.get("hand_cards", []))
+                sync_player_state.rpc(player_id, state_dict)
+        
+        # Sync card pool if it changed
+        if result.get("pool_changed", false):
+            sync_card_pool.rpc(GameState.shared_card_pool)
+    else:
+        # Send error to requesting player only
+        show_error_message.rpc_id(sender_id, result.get("error", "Unknown error"))
+
+# Legacy RPCs - TO BE REMOVED
 @rpc("any_peer", "call_remote", "reliable")
 func request_purchase_card(player_id: int, card_id: String, shop_slot: int):
     """Request to purchase a card from shop"""
@@ -191,22 +229,41 @@ func request_refresh_shop(player_id: int):
     # Only process on the server/host - use is_host instead of multiplayer.is_server()
     # because multiplayer.is_server() returns false in RPC context
     if is_host:
+        # Validate that the requesting player is the one being refreshed
+        if sender_id != 0 and sender_id != player_id:
+            print("NetworkManager: WARNING - Sender ", sender_id, " requesting refresh for different player ", player_id)
+            return
+            
         print("NetworkManager: Server executing refresh for player ", player_id)
-        validate_and_execute_refresh(player_id)
-        print("NetworkManager: About to sync player state for player ", player_id)
-        sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
-        sync_card_pool.rpc(GameState.shared_card_pool)
+        var success = validate_and_execute_refresh(player_id)
+        
+        if success:
+            # Double-check we're syncing the correct player's state
+            if not GameState.players.has(player_id):
+                print("NetworkManager: ERROR - Player ", player_id, " not found after refresh")
+                return
+                
+            # Use safe sync method
+            safe_sync_player_state(player_id)
+            sync_card_pool.rpc(GameState.shared_card_pool)
     else:
         print("NetworkManager: Client received refresh request - ignoring (should not happen with proper RPC setup)")
 
 @rpc("any_peer", "call_remote", "reliable")
 func request_upgrade_shop(player_id: int):
     """Request to upgrade player's shop tier"""
-    print("NetworkManager: Upgrade shop request - Player: ", player_id)
+    var sender_id = multiplayer.get_remote_sender_id()
+    print("NetworkManager: Upgrade shop request - Player: ", player_id, ", Sender: ", sender_id)
     
     if is_host:
-        validate_and_execute_upgrade(player_id)
-        sync_player_state.rpc(player_id, GameState.players[player_id].to_dict())
+        # Validate sender
+        if sender_id != 0 and sender_id != player_id:
+            print("NetworkManager: WARNING - Sender ", sender_id, " requesting upgrade for different player ", player_id)
+            return
+            
+        var success = validate_and_execute_upgrade(player_id)
+        if success:
+            safe_sync_player_state(player_id)
 
 @rpc("any_peer", "call_local", "reliable")
 func request_sell_minion(player_id: int, card_id: String):
@@ -298,28 +355,79 @@ func sync_phase_change(new_phase: GameState.GameMode):
 @rpc("authority", "call_local", "reliable")
 func sync_player_state(player_id: int, player_data: Dictionary):
     """Sync a player's state across all clients"""
-    print("NetworkManager: Syncing player state for player ", player_id, " to peer ", multiplayer.get_unique_id())
+    var my_peer_id = multiplayer.get_unique_id()
+    print("NetworkManager: Syncing player state for player ", player_id, " to peer ", my_peer_id)
+    print("NetworkManager: Player data shop_cards: ", player_data.get("shop_cards", []))
+    
+    # Validate the player_id in the data matches the parameter
+    var data_player_id = player_data.get("player_id", -1)
+    if data_player_id != player_id:
+        print("NetworkManager: ERROR - Mismatch between player_id parameter (", player_id, ") and data player_id (", data_player_id, ")")
+        return
     
     if GameState.players.has(player_id):
         var player = GameState.players[player_id]
         var old_shop = player.shop_cards.duplicate()
         var old_gold = player.current_gold
         var old_frozen = player.frozen_card_ids.duplicate()
+        
+        # Log the incoming gold value for debugging
+        var new_gold = player_data.get("current_gold", -1)
+        print("NetworkManager: Player ", player_id, " gold update: ", old_gold, " -> ", new_gold)
+        
+        # Store old hand cards to detect changes
+        var old_hand = player.hand_cards.duplicate()
+        
         player.from_dict(player_data)
         print("NetworkManager: Updated player ", player_id, " shop from ", old_shop, " to ", player.shop_cards)
         print("NetworkManager: Updated player ", player_id, " gold from ", old_gold, " to ", player.current_gold)
         print("NetworkManager: Updated player ", player_id, " frozen cards from ", old_frozen, " to ", player.frozen_card_ids)
+        print("NetworkManager: Updated player ", player_id, " hand from ", old_hand, " to ", player.hand_cards)
         
-        # If this is the local player, force UI update for gold and shop tier
-        # This ensures the display updates even if the signal connection isn't working
+        # Check if hand cards changed (new cards were added)
         if player_id == local_player_id:
+            # Find which cards were added
+            var new_cards = []
+            for card_id in player.hand_cards:
+                if not card_id in old_hand:
+                    new_cards.append(card_id)
+            
+            if new_cards.size() > 0:
+                print("NetworkManager: Local player gained ", new_cards.size(), " new cards: ", new_cards)
+                for card_id in new_cards:
+                    print("NetworkManager: Creating visual card in hand: ", card_id)
+                    _create_visual_card_in_hand(card_id)
+                    
+                    # Show purchase success message
+                    var card_data = CardDatabase.get_card_data(card_id)
+                    var card_name = card_data.get("name", "Unknown")
+                    var cost = card_data.get("cost", 3)
+                    var game_board = get_tree().get_first_node_in_group("game_board")
+                    if game_board and game_board.ui_manager:
+                        game_board.ui_manager.show_flash_message("Purchased %s for %d gold!" % [card_name, cost], 1.5)
+            
+            # Also check if we need to recreate all hand visuals (in case of desync)
             var game_board = get_tree().get_first_node_in_group("game_board")
-            if game_board and game_board.ui_manager:
-                if old_gold != player.current_gold:
-                    print("NetworkManager: Local player gold changed, forcing UI update")
-                    game_board.ui_manager.update_gold_display_detailed()
-                # Also update shop tier display in case upgrade cost changed
-                game_board.ui_manager.update_shop_tier_display_detailed()
+            if game_board:
+                var hand_container = game_board.ui_manager.get_hand_container()
+                var visual_count = 0
+                for child in hand_container.get_children():
+                    if child.has_meta("card_id"):
+                        visual_count += 1
+                
+                if visual_count != player.hand_cards.size():
+                    print("NetworkManager: Hand visual mismatch! Visual cards: ", visual_count, ", Data cards: ", player.hand_cards.size())
+                    print("NetworkManager: Recreating all hand visuals...")
+                    # Clear and recreate all hand visuals
+                    for child in hand_container.get_children():
+                        child.queue_free()
+                    
+                    for card_id in player.hand_cards:
+                        _create_visual_card_in_hand(card_id)
+        
+        # If this is the local player, update all displays
+        if player_id == local_player_id:
+            _update_local_player_display()
     else:
         # Create new player from data
         var new_player = PlayerState.new()
@@ -330,8 +438,23 @@ func sync_player_state(player_id: int, player_data: Dictionary):
 @rpc("authority", "call_local", "reliable")
 func sync_card_pool(pool_data: Dictionary):
     """Sync shared card pool across all clients"""
-    print("NetworkManager: Syncing shared card pool")
+    print("NetworkManager: Syncing shared card pool with ", pool_data.size(), " unique cards")
     GameState.shared_card_pool = pool_data
+    print("NetworkManager: GameState.shared_card_pool now has ", GameState.shared_card_pool.size(), " cards")
+
+@rpc("authority", "call_remote", "reliable")
+func show_error_message(message: String):
+    """Show error message to specific client"""
+    var game_board = get_tree().get_first_node_in_group("game_board")
+    if game_board and game_board.ui_manager:
+        game_board.ui_manager.show_flash_message(message, 2.0)
+
+@rpc("authority", "call_local", "reliable")
+func show_success_message(message: String):
+    """Show success message to all clients"""
+    var game_board = get_tree().get_first_node_in_group("game_board")
+    if game_board and game_board.ui_manager:
+        game_board.ui_manager.show_flash_message(message, 1.5)
 
 @rpc("authority", "call_local", "reliable")
 func sync_board_state_only(player_id: int, board_minions: Array):
@@ -350,30 +473,46 @@ func advance_turn():
     """Advance to next turn (host authority)"""
     print("NetworkManager: Advancing turn")
     
-    # Use GameState's turn progression system
-    GameState.start_new_turn()
+    if not is_host:
+        print("ERROR: Non-host trying to advance turn")
+        return
     
-    # Reset all players' end turn status
-    for player in GameState.players.values():
-        player.has_ended_turn = false
+    # Use HostGameLogic to handle turn advancement
+    var result = HostGameLogic.advance_turn_for_all_players()
     
-    # Deal new shop cards for all players
-    _deal_new_shops_for_all_players()
+    if result.success:
+        # Sync all affected player states
+        for player_id in result.get("state_changes", {}):
+            if GameState.players.has(player_id):
+                var state_dict = GameState.players[player_id].to_dict()
+                sync_player_state.rpc(player_id, state_dict)
+        
+        # Sync card pool if it changed
+        if result.get("pool_changed", false):
+            sync_card_pool.rpc(GameState.shared_card_pool)
 
 @rpc("authority", "call_local", "reliable")
 func advance_turn_and_return_to_shop():
     """Advance turn and return to shop phase after combat (host authority)"""
     print("NetworkManager: Advancing turn and returning to shop")
     
-    # First advance the turn
-    GameState.start_new_turn()
+    if not is_host:
+        print("ERROR: Non-host trying to advance turn")
+        return
     
-    # Reset all players' end turn status
-    for player in GameState.players.values():
-        player.has_ended_turn = false
+    # First advance the turn using HostGameLogic
+    var result = HostGameLogic.advance_turn_for_all_players()
     
-    # Deal new shop cards for all players
-    _deal_new_shops_for_all_players()
+    if result.success:
+        # Sync all affected player states
+        for player_id in result.get("state_changes", {}):
+            if GameState.players.has(player_id):
+                var state_dict = GameState.players[player_id].to_dict()
+                sync_player_state.rpc(player_id, state_dict)
+        
+        # Sync card pool if it changed
+        if result.get("pool_changed", false):
+            sync_card_pool.rpc(GameState.shared_card_pool)
     
     # Then change phase to shop
     sync_phase_change.rpc(GameState.GameMode.SHOP)
@@ -471,6 +610,59 @@ func sync_combat_results_v3(combat_log: Array, player1_id: int, player1_damage: 
     GameState.check_for_eliminations()
 
 # === UTILITY FUNCTIONS ===
+
+func safe_sync_player_state(player_id: int):
+    """Safely sync a player's state with validation and rate limiting"""
+    if not is_host:
+        print("NetworkManager: ERROR - Non-host trying to sync player state")
+        return
+        
+    if not GameState.players.has(player_id):
+        print("NetworkManager: ERROR - Trying to sync non-existent player ", player_id)
+        return
+    
+    # Rate limiting check
+    var current_time = Time.get_ticks_msec() / 1000.0
+    if _pending_state_syncs.has(player_id):
+        var last_sync_time = _pending_state_syncs[player_id]
+        if current_time - last_sync_time < _state_sync_cooldown:
+            print("NetworkManager: Skipping state sync for player ", player_id, " - too soon since last sync")
+            return
+    
+    # Get fresh player state
+    var player_state = GameState.players[player_id]
+    var player_dict = player_state.to_dict()
+    
+    # Validate the dictionary has correct player_id
+    if player_dict.get("player_id", -1) != player_id:
+        print("NetworkManager: ERROR - Player state dict has wrong player_id")
+        print("  Expected: ", player_id, ", Got: ", player_dict.get("player_id", -1))
+        return
+    
+    # Double-check we have the right player
+    if player_state.player_id != player_id:
+        print("NetworkManager: ERROR - PlayerState object has wrong player_id!")
+        print("  Expected: ", player_id, ", Got: ", player_state.player_id)
+        return
+    
+    # Log what we're syncing
+    print("NetworkManager: Safe syncing player ", player_id, " state:")
+    print("  current_gold: ", player_dict.get("current_gold", -1))
+    print("  player_base_gold: ", player_dict.get("player_base_gold", -1))
+    print("  shop_tier: ", player_dict.get("shop_tier", -1))
+    print("  Current turn: ", GameState.current_turn)
+    
+    # Debug: Log all players' gold values
+    print("NetworkManager: Current gold values for all players:")
+    for pid in GameState.players:
+        var p = GameState.players[pid]
+        print("  Player ", pid, " (", p.player_name, "): ", p.current_gold, " gold")
+    
+    # Update rate limiting tracker
+    _pending_state_syncs[player_id] = current_time
+    
+    # Perform the sync
+    sync_player_state.rpc(player_id, player_dict)
 
 func get_player_count() -> int:
     """Get the number of connected players"""
@@ -642,13 +834,27 @@ func get_network_status() -> String:
 
 func validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: int) -> bool:
     """Validate and execute a card purchase (host authority)"""
+    print("NetworkManager: Validating purchase - Player: ", player_id, ", Card: ", card_id, ", Slot: ", shop_slot)
+    
     var player = GameState.players.get(player_id)
     if not player:
+        print("Purchase validation failed: Player not found")
         return false
     
+    print("  Player's shop cards: ", player.shop_cards)
+    print("  Shop cards count: ", player.shop_cards.size())
+    
     # Check if card is in player's shop at the specified slot
-    if shop_slot >= player.shop_cards.size() or player.shop_cards[shop_slot] != card_id:
-        print("Purchase validation failed: Card not in shop slot")
+    if shop_slot < 0:
+        print("Purchase validation failed: Invalid shop slot (-1)")
+        return false
+    
+    if shop_slot >= player.shop_cards.size():
+        print("Purchase validation failed: Shop slot ", shop_slot, " >= shop size ", player.shop_cards.size())
+        return false
+    
+    if player.shop_cards[shop_slot] != card_id:
+        print("Purchase validation failed: Card at slot ", shop_slot, " is '", player.shop_cards[shop_slot], "' not '", card_id, "'")
         return false
     
     # Check if player can afford the card
@@ -672,6 +878,9 @@ func validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: i
     if player_id == local_player_id:
         player.notify_gold_changed()
         player.notify_shop_changed()
+        
+        # Create the visual card in the player's hand
+        _create_visual_card_in_hand(card_id)
     
     # Remove card from shared pool permanently
     GameState.remove_card_from_pool(card_id)
@@ -681,20 +890,33 @@ func validate_and_execute_purchase(player_id: int, card_id: String, shop_slot: i
 
 func validate_and_execute_refresh(player_id: int) -> bool:
     """Validate and execute shop refresh (host authority)"""
+    print("NetworkManager: validate_and_execute_refresh called for player ", player_id)
+    
+    # Debug: Print all players' states before refresh
+    print("NetworkManager: All players' gold BEFORE refresh:")
+    for pid in GameState.players:
+        var p = GameState.players[pid]
+        print("  Player ", pid, " (", p.player_name, "): gold=", p.current_gold, ", base_gold=", p.player_base_gold, ", shop_tier=", p.shop_tier)
+    
     var player = GameState.players.get(player_id)
     if not player:
+        print("NetworkManager: ERROR - Player ", player_id, " not found in GameState.players")
         return false
+    
+    print("NetworkManager: Player ", player_id, " current gold before refresh: ", player.current_gold)
     
     var refresh_cost = 1
     if player.current_gold < refresh_cost:
-        print("Refresh validation failed: Insufficient gold")
+        print("Refresh validation failed: Insufficient gold (", player.current_gold, " < ", refresh_cost, ")")
         return false
     
     # Return current shop cards to pool
     GameState.return_cards_to_pool(player.shop_cards)
     
     # Deduct cost
+    var gold_before = player.current_gold
     player.current_gold -= refresh_cost
+    print("NetworkManager: Player ", player_id, " gold after refresh: ", gold_before, " - ", refresh_cost, " = ", player.current_gold)
     player.notify_gold_changed()  # Trigger signal for UI update
     
     # Deal new shop cards
@@ -702,7 +924,14 @@ func validate_and_execute_refresh(player_id: int) -> bool:
     GameState.deal_cards_to_shop(player_id, shop_size)
     player.notify_shop_changed()  # Trigger signal for UI update
     
-    print("Shop refresh successful for player ", player_id)
+    print("Shop refresh successful for player ", player_id, " - Final gold: ", player.current_gold)
+    
+    # Debug: Print all players' states after refresh
+    print("NetworkManager: All players' gold AFTER refresh:")
+    for pid in GameState.players:
+        var p = GameState.players[pid]
+        print("  Player ", pid, " (", p.player_name, "): gold=", p.current_gold, ", base_gold=", p.player_base_gold, ", shop_tier=", p.shop_tier)
+    
     return true
 
 func validate_and_execute_upgrade(player_id: int) -> bool:
@@ -804,4 +1033,57 @@ func _deal_new_shops_for_all_players():
         print("  Syncing player ", player_id, " with frozen cards: ", player_dict.get("frozen_card_ids", []))
         sync_player_state.rpc(player_id, player_dict)
     
-    sync_card_pool.rpc(GameState.shared_card_pool) 
+    sync_card_pool.rpc(GameState.shared_card_pool)
+
+func _create_visual_card_in_hand(card_id: String):
+    """Create a visual card in the local player's hand"""
+    # Get the game board to access UI
+    var game_board = get_tree().get_first_node_in_group("game_board")
+    if game_board:
+        # Use the existing function to add card to hand
+        game_board.add_card_to_hand_direct(card_id)
+        print("NetworkManager: Added visual card ", card_id, " to hand")
+    else:
+        print("NetworkManager: ERROR - Could not find game_board to add card to hand")
+
+func _update_local_player_display():
+    """Update all displays for the local player"""
+    var player = GameState.get_local_player()
+    if not player:
+        print("NetworkManager: No local player found for display update")
+        return
+    
+    var game_board = get_tree().get_first_node_in_group("game_board")
+    if not game_board:
+        print("NetworkManager: No game board found for display update")
+        return
+    
+    # Get full card data for shop display
+    var shop_cards_data = []
+    for card_id in player.shop_cards:
+        var card_data = CardDatabase.get_card_data(card_id).duplicate()  # Make a copy to avoid modifying the original
+        if card_data.is_empty():
+            print("NetworkManager: Warning - card data not found for: ", card_id)
+            continue
+        # Add the card ID to the data dictionary
+        card_data["id"] = card_id
+        shop_cards_data.append(card_data)
+    
+    print("NetworkManager: Updating shop display with ", shop_cards_data.size(), " cards")
+    
+    # Update shop display
+    if game_board.shop_manager:
+        game_board.shop_manager.display_shop(shop_cards_data, player.frozen_card_ids)
+    else:
+        print("NetworkManager: ERROR - shop_manager not found")
+    
+    # Update UI displays
+    if game_board.ui_manager:
+        game_board.ui_manager.update_gold_display_detailed()
+        game_board.ui_manager.update_shop_tier_display_detailed()
+        
+        # Update hand count (visual cards should already exist)
+        game_board.ui_manager.update_hand_display()
+        
+        # Hide any waiting indicators
+        game_board.ui_manager.hide_all_waiting_indicators() 

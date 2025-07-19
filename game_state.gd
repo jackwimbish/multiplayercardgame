@@ -147,9 +147,14 @@ func setup_multiplayer_state():
                 game_player.reset_game_state()
                 players[connected_player_id] = game_player
         
-        # If host, deal initial shop cards for all players
+        # If host, sync card pool first, then deal initial shop cards
         if local_player_id == host_player_id:
-            _deal_initial_shops_for_all_players()
+            print("GameState: Host syncing card pool to all clients")
+            NetworkManager.sync_card_pool.rpc(shared_card_pool)
+            
+            print("GameState: Host will deal initial shops")
+            # Use call_deferred to ensure everything is initialized
+            call_deferred("_deal_initial_shops_for_all_players")
         
         print("GameState: Multiplayer state initialized for ", players.size(), " players")
 
@@ -292,17 +297,28 @@ func initialize_card_pool():
     """Set up card availability tracking based on tier and copy counts (shop-available cards only)"""
     shared_card_pool.clear()
     
+    print("GameState: Initializing card pool...")
+    
     # Copy counts by tier: [tier 1: 18, tier 2: 15, tier 3: 13, tier 4: 11, tier 5: 9, tier 6: 6]
     var copies_by_tier = {1: 18, 2: 15, 3: 13, 4: 11, 5: 9, 6: 6}
     
     # Initialize pool for each shop-available card based on its tier
-    for card_id in CardDatabase.get_all_shop_available_card_ids():
+    var available_cards = CardDatabase.get_all_shop_available_card_ids()
+    print("GameState: Found ", available_cards.size(), " shop-available cards")
+    
+    if available_cards.size() == 0:
+        print("ERROR: No shop-available cards found in CardDatabase!")
+        return
+    
+    for card_id in available_cards:
         var card_data = CardDatabase.get_card_data(card_id)
         var tier = card_data.get("tier", 1)
         var copy_count = copies_by_tier.get(tier, 1)
         shared_card_pool[card_id] = copy_count
     
-    print("Shared card pool initialized (shop cards only): ", shared_card_pool)
+    print("Shared card pool initialized with ", shared_card_pool.size(), " unique cards")
+    if shared_card_pool.size() > 0:
+        print("Sample cards in pool: ", shared_card_pool.keys().slice(0, 5))
 
 # === SHOP SIZE AND TIER LOGIC ===
 
@@ -337,11 +353,13 @@ func deal_cards_to_shop(player_id: int, num_cards: int) -> Array:
     
     # Calculate how many new cards we need
     var new_cards_needed = num_cards - dealt_cards.size()
+    print("  Need to deal ", new_cards_needed, " new cards")
     
     if new_cards_needed > 0:
         var available_cards = []
         
         # Get cards available for this player's shop tier
+        print("  Looking for tier ", player.shop_tier, " or lower cards in pool")
         for card_id in shared_card_pool.keys():
             var card_data = CardDatabase.get_card_data(card_id)
             var card_tier = card_data.get("tier", 1)
@@ -351,6 +369,13 @@ func deal_cards_to_shop(player_id: int, num_cards: int) -> Array:
                 # Add multiple entries for cards with multiple copies
                 for i in available_count:
                     available_cards.append(card_id)
+        
+        print("  Found ", available_cards.size(), " available cards for tier ", player.shop_tier)
+        
+        if available_cards.size() == 0:
+            print("  ERROR: No available cards found!")
+            print("  Shared card pool has ", shared_card_pool.size(), " unique cards")
+            return dealt_cards
         
         # Randomly deal new cards from available pool
         available_cards.shuffle()
@@ -364,6 +389,9 @@ func deal_cards_to_shop(player_id: int, num_cards: int) -> Array:
     # Update player's shop
     player.shop_cards = dealt_cards
     print("Dealt ", dealt_cards.size(), " cards to player ", player_id, ": ", dealt_cards)
+    
+    # In SSOT architecture, display updates happen through NetworkManager after state sync
+    
     return dealt_cards
 
 func return_cards_to_pool(card_ids: Array, frozen_card_ids: Array = []):
@@ -403,12 +431,31 @@ func get_available_card_count(card_id: String) -> int:
 
 func _deal_initial_shops_for_all_players():
     """Deal initial shop cards for all players at game start"""
+    print("GameState: _deal_initial_shops_for_all_players called")
+    print("GameState: Number of players: ", players.size())
+    
     for player_id in players.keys():
         var player = players[player_id]
+        print("GameState: Dealing shop for player ", player_id, " (", player.player_name, ")")
         var shop_size = get_shop_size_for_tier(player.shop_tier)
-        deal_cards_to_shop(player_id, shop_size)
+        print("GameState: Shop size for tier ", player.shop_tier, ": ", shop_size)
+        var dealt_cards = deal_cards_to_shop(player_id, shop_size)
+        print("GameState: Dealt cards to player ", player_id, ": ", dealt_cards)
     
     print("GameState: Initial shops dealt for all players")
+    
+    # Sync all player states to clients after dealing initial shops
+    if NetworkManager and is_host():
+        print("GameState: Host syncing initial shop states to all clients")
+        
+        for player_id in players.keys():
+            var player_dict = players[player_id].to_dict()
+            print("GameState: Syncing player ", player_id, " with shop: ", player_dict.get("shop_cards", []))
+            NetworkManager.sync_player_state.rpc(player_id, player_dict)
+        
+        # Also update local host display
+        if NetworkManager.has_method("_update_local_player_display"):
+            NetworkManager.call_deferred("_update_local_player_display")
 
 # Get current state as a dictionary (useful for debugging/save systems later)
 func get_state_snapshot() -> Dictionary:
@@ -518,6 +565,12 @@ func calculate_tavern_upgrade_cost() -> int:
     if not can_upgrade_tavern():
         return -1  # Cannot upgrade past tier 6
     return current_tavern_upgrade_cost
+
+func calculate_tavern_upgrade_cost_for_player(player: PlayerState) -> int:
+    """Get tavern upgrade cost for a specific player"""
+    if player.shop_tier >= 6:
+        return -1  # Cannot upgrade past tier 6
+    return player.current_tavern_upgrade_cost
 
 func can_upgrade_tavern() -> bool:
     """Check if tavern can be upgraded (not at max tier)"""
