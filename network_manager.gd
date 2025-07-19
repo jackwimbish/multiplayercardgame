@@ -1086,4 +1086,48 @@ func _update_local_player_display():
         game_board.ui_manager.update_hand_display()
         
         # Hide any waiting indicators
-        game_board.ui_manager.hide_all_waiting_indicators() 
+        game_board.ui_manager.hide_all_waiting_indicators()
+    
+    # Update board display
+    _update_board_display(player)
+
+func _update_board_display(player: PlayerState):
+    """Update the visual board to match player's board_minions data"""
+    var game_board = get_tree().get_first_node_in_group("game_board")
+    if not game_board or not game_board.ui_manager:
+        return
+    
+    var board_container = game_board.ui_manager.get_board_container()
+    
+    # Get current visual cards on board
+    var current_visuals = []
+    for child in board_container.get_children():
+        if child.has_meta("card_id"):
+            current_visuals.append(child.get_meta("card_id"))
+    
+    # Compare with data
+    if current_visuals != player.board_minions:
+        print("NetworkManager: Board visual mismatch! Visuals: ", current_visuals, ", Data: ", player.board_minions)
+        print("NetworkManager: Recreating board visuals...")
+        
+        # Clear all visual cards from board
+        for child in board_container.get_children():
+            if child.name != "PlayerBoardLabel":
+                child.queue_free()
+        
+        # Create new visual cards for each minion
+        for card_id in player.board_minions:
+            var card_data = CardDatabase.get_card_data(card_id).duplicate()
+            card_data["id"] = card_id
+            
+            # Create visual card with drag handlers
+            var custom_handlers = {"drag_started": game_board._on_card_drag_started}
+            var card_visual = CardFactory.create_card(card_data, card_id, custom_handlers)
+            
+            # Set metadata
+            card_visual.set_meta("card_id", card_id)
+            card_visual.set_meta("is_board_card", true)
+            
+            board_container.add_child(card_visual)
+        
+        print("NetworkManager: Board visuals recreated with ", player.board_minions.size(), " minions")

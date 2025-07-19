@@ -369,13 +369,43 @@ func _handle_hand_to_board_drop(card):
         _return_card_to_hand(card)
         return
     
-    # Play the minion to the board
-    _play_minion_to_board(card)
-    print("Played ", card_name, " to board")
-    
-    # Sync board state in multiplayer
+    # In multiplayer, use the new play_card action
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        var card_id = card.get_meta("card_id", "")
+        if card_id == "":
+            # Try to find by name if no ID meta
+            for id in CardDatabase.get_all_card_ids():
+                if CardDatabase.get_card_data(id).get("name", "") == card_name:
+                    card_id = id
+                    break
+        
+        if card_id != "":
+            # Calculate board position
+            var board_container = ui_manager.get_board_container()
+            var board_position = _calculate_board_drop_position(card, board_container)
+            
+            # Request play card action
+            NetworkManager.request_game_action.rpc_id(
+                GameState.host_player_id,
+                "play_card",
+                {
+                    "card_id": card_id,
+                    "board_position": board_position
+                }
+            )
+            
+            # Remove visual card (will be recreated when state syncs)
+            card.queue_free()
+            
+            # Update hand count immediately
+            update_hand_count()
+        else:
+            print("Error: Could not find card ID for ", card_name)
+            _return_card_to_hand(card)
+    else:
+        # Practice mode - just move visually
+        _play_minion_to_board(card)
+        print("Played ", card_name, " to board")
 
 func _handle_invalid_shop_drop(card):
     """Handle invalid drops for shop cards"""
@@ -389,32 +419,56 @@ func _handle_invalid_hand_drop(card):
 
 func _handle_board_reorder_drop(card):
     """Handle reordering minions within the board"""
-    var board_container = ui_manager.get_board_container()
-    var cards_on_board = board_container.get_children()
-    var new_index = -1
-
-    # Find where to place the minion based on its X position
-    # Skip the label when calculating position
-    for i in range(cards_on_board.size()):
-        if cards_on_board[i].name == "PlayerBoardLabel":
-            continue
-        if card.global_position.x < cards_on_board[i].global_position.x:
-            new_index = i
-            break
-
-    # Put the card back into the board container
-    card.reparent(board_container)
-
-    # Move it to the calculated position
-    if new_index != -1:
-        board_container.move_child(card, new_index)
-    else:
-        # If it was dropped past the last card, move it to the end
-        board_container.move_child(card, board_container.get_child_count() - 1)
-    
-    # Sync board state in multiplayer (position changed)
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        # Build new board order
+        var board_container = ui_manager.get_board_container()
+        var new_board_order = []
+        
+        # Get all cards except the one being moved
+        for child in board_container.get_children():
+            if child.has_meta("card_id") and child != card:
+                new_board_order.append(child.get_meta("card_id"))
+        
+        # Find where to insert the moved card
+        var insert_position = _calculate_board_drop_position(card, board_container)
+        var card_id = card.get_meta("card_id", "")
+        
+        if insert_position >= new_board_order.size():
+            new_board_order.append(card_id)
+        else:
+            new_board_order.insert(insert_position, card_id)
+        
+        # Request reorder action
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "reorder_board",
+            {"board_minions": new_board_order}
+        )
+        
+        # Return card to original position (will be updated when state syncs)
+        _return_card_to_board(card)
+    else:
+        # Practice mode - just reorder visually
+        var board_container = ui_manager.get_board_container()
+        var cards_on_board = board_container.get_children()
+        var new_index = -1
+
+        # Find where to place the minion based on its X position
+        for i in range(cards_on_board.size()):
+            if cards_on_board[i].name == "PlayerBoardLabel":
+                continue
+            if card.global_position.x < cards_on_board[i].global_position.x:
+                new_index = i
+                break
+
+        # Put the card back into the board container
+        card.reparent(board_container)
+
+        # Move it to the calculated position
+        if new_index != -1:
+            board_container.move_child(card, new_index)
+        else:
+            board_container.move_child(card, board_container.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -429,34 +483,55 @@ func _handle_board_to_shop_drop(card):
         _return_card_to_board(card)
         return
     
-    # Get card info for feedback
-    var card_name = card.get_node("VBoxContainer/CardName").text
-    var card_data = _find_card_data_by_name(card_name)
-    
-    if card_data.is_empty():
-        print("Error: Could not find card data for ", card_name)
+    # Get card info
+    var card_id = card.get_meta("card_id", "")
+    if card_id == "":
+        print("Error: No card_id metadata on board card")
         _return_card_to_board(card)
         return
     
-    # Only minions can be sold (should always be true since it's from board)
-    if card_data.get("type", "") != "minion":
-        print("Error: Non-minion on board - cannot sell")
-        _return_card_to_board(card)
-        return
-    
-    # Execute the sale
-    GameState.gain_gold(1)
-    card.queue_free()  # Remove the minion card
-    
-    # Update displays
-    update_board_count()
-    ui_manager.update_gold_display_detailed()  # Update gold display
-    
-    print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
-    
-    # Sync board state in multiplayer (minion sold)
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        # Find board index
+        var board_container = ui_manager.get_board_container()
+        var board_index = -1
+        var index = 0
+        for child in board_container.get_children():
+            if child.has_meta("card_id"):
+                if child == card:
+                    board_index = index
+                    break
+                index += 1
+        
+        if board_index >= 0:
+            # Request sell action
+            NetworkManager.request_game_action.rpc_id(
+                GameState.host_player_id,
+                "sell_minion",
+                {
+                    "card_id": card_id,
+                    "board_index": board_index
+                }
+            )
+            
+            # Remove visual card (will be updated when state syncs)
+            card.queue_free()
+            update_board_count()
+        else:
+            print("Error: Could not find board index for card")
+            _return_card_to_board(card)
+    else:
+        # Practice mode
+        var card_name = card.get_node("VBoxContainer/CardName").text
+        
+        # Execute the sale locally
+        GameState.gain_gold(1)
+        card.queue_free()
+        
+        # Update displays
+        update_board_count()
+        ui_manager.update_gold_display_detailed()
+        
+        print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -526,6 +601,24 @@ func _play_minion_to_board(card):
     # Update counts
     update_hand_count()
     update_board_count()
+
+func _calculate_board_drop_position(card: Node, board_container: Container) -> int:
+    """Calculate where a card should be inserted on the board based on drop position"""
+    var cards_on_board = board_container.get_children()
+    var position = 0
+    
+    # Find insertion position based on X coordinate
+    for i in range(cards_on_board.size()):
+        if cards_on_board[i].name == "PlayerBoardLabel":
+            continue
+        if not cards_on_board[i].has_meta("card_id"):
+            continue
+        if card.global_position.x < cards_on_board[i].global_position.x:
+            return position
+        position += 1
+    
+    # If we get here, add to end
+    return position
 
 # _unhandled_input removed - now handled by DragDropManager
 
