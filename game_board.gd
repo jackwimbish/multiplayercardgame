@@ -399,8 +399,10 @@ func _handle_hand_to_board_drop(card):
                 }
             )
             
-            # Return card to hand - visual state will update when host responds
-            _return_card_to_hand(card)
+            # For non-host players, return card to hand - visual state will update when host responds
+            # For host, don't return card since state sync happens immediately via call_local
+            if !GameState.is_host():
+                _return_card_to_hand(card)
             
             # Show subtle feedback
             ui_manager.show_flash_message("Playing minion...", 0.5)
