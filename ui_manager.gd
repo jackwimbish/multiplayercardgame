@@ -109,11 +109,16 @@ func _on_turn_changed(new_turn: int):
     """Handle turn change to update upgrade button cost"""
     # Update the upgrade button cost since it decreases each turn
     if upgrade_button:
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if upgrade_cost > 0:
-            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-        else:
+        var local_player = GameState.get_local_player()
+        if local_player and local_player.shop_tier >= 6:
             upgrade_button.text = "Max Tier"
+        else:
+            var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+            if upgrade_cost >= 0:
+                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+            else:
+                # Fallback for practice mode
+                upgrade_button.text = "Max Tier"
 
 func _on_gold_changed(new_gold: int, max_gold: int):
     """Handle gold changes with detailed display update"""
@@ -153,11 +158,15 @@ func update_shop_tier_display(new_tier: int):
         shop_tier_label.text = "Shop Tier: " + str(new_tier)
     
     if upgrade_button:
-        var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-        if upgrade_cost > 0:
-            upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-        else:
+        if new_tier >= 6:
             upgrade_button.text = "Max Tier"
+        else:
+            var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+            if upgrade_cost >= 0:
+                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+            else:
+                # This shouldn't happen, but fallback to Max Tier
+                upgrade_button.text = "Max Tier"
 
 func update_shop_tier_display_detailed():
     """Update shop tier and upgrade button with current state - replaces game_board direct access"""
@@ -169,18 +178,22 @@ func update_shop_tier_display_detailed():
     
     if upgrade_button:
         if local_player:
-            var upgrade_cost = local_player.current_tavern_upgrade_cost
-            if local_player.shop_tier < 6 and upgrade_cost > 0:
-                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-            else:
+            if local_player.shop_tier >= 6:
                 upgrade_button.text = "Max Tier"
+            else:
+                var upgrade_cost = local_player.current_tavern_upgrade_cost
+                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
         else:
             # Fallback for practice mode
-            var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
-            if upgrade_cost > 0:
-                upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
-            else:
+            if GameState.shop_tier >= 6:
                 upgrade_button.text = "Max Tier"
+            else:
+                var upgrade_cost = GameState.calculate_tavern_upgrade_cost()
+                if upgrade_cost >= 0:
+                    upgrade_button.text = "Upgrade Shop (" + str(upgrade_cost) + " gold)"
+                else:
+                    # This shouldn't happen, but fallback
+                    upgrade_button.text = "Max Tier"
 
 func update_hand_display():
     """Update hand count display"""

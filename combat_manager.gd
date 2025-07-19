@@ -544,7 +544,7 @@ func _restore_player_board_appearance() -> void:
             children_to_remove.append(child)
     
     for child in children_to_remove:
-        child.queue_free()
+        child.free()  # Use free() for immediate removal instead of queue_free()
     
     # Then, restore visibility and appearance of original minion cards
     for child in board_container.get_children():
@@ -1007,7 +1007,8 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         _show_hand_area()
         
         # Update displays - turn has already advanced so values should be correct
-        ui_manager.update_all_game_displays()
+        # Use call_deferred to ensure combat visualization cards are fully removed
+        ui_manager.call_deferred("update_all_game_displays")
         
         # In multiplayer, force a shop refresh to ensure cards are displayed
         # Use call_deferred to ensure UI is ready
