@@ -275,12 +275,18 @@ func apply_font_to_button(button: Button, size: int) -> void:
 # === PUBLIC INTERFACE FOR GAME LOGIC ===
 
 func get_hand_size() -> int:
-    """Get current number of cards in hand"""
-    return player_hand.get_children().size() - 1  # Subtract label
+    """Get current number of cards in hand from game state"""
+    var player = GameState.get_local_player()
+    if player:
+        return player.hand_cards.size()
+    return 0
 
 func get_board_size() -> int:
-    """Get current number of minions on board"""
-    return player_board.get_children().size() - 1  # Subtract label
+    """Get current number of minions on board from game state"""
+    var player = GameState.get_local_player()
+    if player:
+        return player.board_minions.size()
+    return 0
 
 func is_hand_full() -> bool:
     """Check if hand is at maximum capacity"""

@@ -384,6 +384,7 @@ func sync_player_state(player_id: int, player_data: Dictionary):
         print("NetworkManager: Updated player ", player_id, " gold from ", old_gold, " to ", player.current_gold)
         print("NetworkManager: Updated player ", player_id, " frozen cards from ", old_frozen, " to ", player.frozen_card_ids)
         print("NetworkManager: Updated player ", player_id, " hand from ", old_hand, " to ", player.hand_cards)
+        print("NetworkManager: Updated player ", player_id, " board from ", player.board_minions)
         
         # Check if hand cards changed (new cards were added)
         if player_id == local_player_id:
@@ -410,21 +411,7 @@ func sync_player_state(player_id: int, player_data: Dictionary):
             # Also check if we need to recreate all hand visuals (in case of desync)
             var game_board = get_tree().get_first_node_in_group("game_board")
             if game_board:
-                var hand_container = game_board.ui_manager.get_hand_container()
-                var visual_count = 0
-                for child in hand_container.get_children():
-                    if child.has_meta("card_id"):
-                        visual_count += 1
-                
-                if visual_count != player.hand_cards.size():
-                    print("NetworkManager: Hand visual mismatch! Visual cards: ", visual_count, ", Data cards: ", player.hand_cards.size())
-                    print("NetworkManager: Recreating all hand visuals...")
-                    # Clear and recreate all hand visuals
-                    for child in hand_container.get_children():
-                        child.queue_free()
-                    
-                    for card_id in player.hand_cards:
-                        _create_visual_card_in_hand(card_id)
+                _validate_and_update_hand_visuals(player, game_board)
         
         # If this is the local player, update all displays
         if player_id == local_player_id:
@@ -432,6 +419,14 @@ func sync_player_state(player_id: int, player_data: Dictionary):
             
             # Also update board display in case board state changed
             _update_board_display(player)
+            
+            # Always update UI counts after state changes
+            var game_board = get_tree().get_first_node_in_group("game_board")
+            if game_board and game_board.ui_manager:
+                # Update counts based on the new PlayerState data
+                game_board.ui_manager.update_hand_display()
+                game_board.ui_manager.update_board_display()
+                print("NetworkManager: Updated UI counts - Hand: ", player.hand_cards.size(), ", Board: ", player.board_minions.size())
     else:
         # Create new player from data
         var new_player = PlayerState.new()
@@ -1088,9 +1083,6 @@ func _update_local_player_display():
         
         # Update hand count (visual cards should already exist)
         game_board.ui_manager.update_hand_display()
-        
-        # Hide any waiting indicators
-        game_board.ui_manager.hide_all_waiting_indicators()
     
     # Update board display
     _update_board_display(player)
@@ -1111,14 +1103,24 @@ func _update_board_display(player: PlayerState):
     
     print("NetworkManager: _update_board_display - Visual cards: ", current_visuals, ", Data cards: ", player.board_minions)
     
+    # Always recreate if there's any mismatch (order or content)
+    var needs_recreation = false
+    if current_visuals.size() != player.board_minions.size():
+        needs_recreation = true
+    else:
+        for i in range(current_visuals.size()):
+            if current_visuals[i] != player.board_minions[i]:
+                needs_recreation = true
+                break
+    
     # Compare with data
-    if current_visuals != player.board_minions:
+    if needs_recreation:
         print("NetworkManager: Board visual mismatch! Visuals: ", current_visuals, ", Data: ", player.board_minions)
         print("NetworkManager: Recreating board visuals...")
         
-        # Clear all visual cards from board
+        # Clear only visual cards from board, not the label
         for child in board_container.get_children():
-            if child.name != "PlayerBoardLabel":
+            if child.has_meta("card_id"):
                 child.queue_free()
         
         # Create new visual cards for each minion
@@ -1137,3 +1139,38 @@ func _update_board_display(player: PlayerState):
             board_container.add_child(card_visual)
         
         print("NetworkManager: Board visuals recreated with ", player.board_minions.size(), " minions")
+        # Count display will be updated by the calling function after state sync
+
+func _validate_and_update_hand_visuals(player: PlayerState, game_board: Node):
+    """Validate hand visuals match data and recreate if needed"""
+    var hand_container = game_board.ui_manager.get_hand_container()
+    
+    # Get current visual cards in hand
+    var current_visuals = []
+    for child in hand_container.get_children():
+        if child.has_meta("card_id"):
+            current_visuals.append(child.get_meta("card_id"))
+    
+    # Check if visual state matches data state
+    var needs_recreation = false
+    if current_visuals.size() != player.hand_cards.size():
+        needs_recreation = true
+    else:
+        # Check if all cards match in order
+        for i in range(current_visuals.size()):
+            if current_visuals[i] != player.hand_cards[i]:
+                needs_recreation = true
+                break
+    
+    if needs_recreation:
+        print("NetworkManager: Hand visual mismatch! Visual cards: ", current_visuals, ", Data cards: ", player.hand_cards)
+        print("NetworkManager: Recreating all hand visuals...")
+        
+        # Clear only card visuals, not the label
+        for child in hand_container.get_children():
+            if child.has_meta("card_id"):
+                child.queue_free()
+        
+        # Recreate all hand cards in correct order
+        for card_id in player.hand_cards:
+            _create_visual_card_in_hand(card_id)

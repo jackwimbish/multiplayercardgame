@@ -225,7 +225,7 @@ func add_card_to_hand_direct(card_id: String):
     new_card.set_meta("card_id", card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
-    update_hand_count()
+    # Count will update when state changes
 
 func add_generated_card_to_hand(card_id: String) -> bool:
     """Add a generated card (like The Coin) to hand - bypasses shop restrictions"""
@@ -312,14 +312,19 @@ func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
     if GameModeManager.is_in_multiplayer_session():
         var drag_data = shop_manager.get_card_drag_data(card)
-        ui_manager.show_waiting_indicator("shop")
+        
+        # Send purchase request
         NetworkManager.request_game_action.rpc_id(
             GameState.host_player_id,
             "purchase_card",
             drag_data
         )
-        # Remove the dragged card visual
-        card.queue_free()
+        
+        # Return card to shop - visual state will update when host responds
+        _return_card_to_shop(card)
+        
+        # Show subtle feedback that action was registered
+        ui_manager.show_flash_message("Purchasing...", 0.5)
     else:
         print("Practice mode not implemented in SSOT architecture")
         _return_card_to_shop(card)
@@ -394,11 +399,11 @@ func _handle_hand_to_board_drop(card):
                 }
             )
             
-            # Remove visual card (will be recreated when state syncs)
-            card.queue_free()
+            # Return card to hand - visual state will update when host responds
+            _return_card_to_hand(card)
             
-            # Update hand count immediately
-            update_hand_count()
+            # Show subtle feedback
+            ui_manager.show_flash_message("Playing minion...", 0.5)
         else:
             print("Error: Could not find card ID for ", card_name)
             _return_card_to_hand(card)
@@ -447,6 +452,9 @@ func _handle_board_reorder_drop(card):
         
         # Return card to original position (will be updated when state syncs)
         _return_card_to_board(card)
+        
+        # Show subtle feedback
+        ui_manager.show_flash_message("Reordering...", 0.3)
     else:
         # Practice mode - just reorder visually
         var board_container = ui_manager.get_board_container()
@@ -518,9 +526,11 @@ func _handle_board_to_shop_drop(card):
                 }
             )
             
-            # Remove visual card (will be updated when state syncs)
-            card.queue_free()
-            update_board_count()
+            # Return card to board - visual state will update when host responds
+            _return_card_to_board(card)
+            
+            # Show subtle feedback
+            ui_manager.show_flash_message("Selling minion...", 0.5)
         else:
             print("Error: Could not find board index for card")
             _return_card_to_board(card)
@@ -603,9 +613,9 @@ func _play_minion_to_board(card):
         # If dropped past the last card, move to end (but before label if it exists)
         board_container.move_child(card, board_container.get_child_count() - 1)
     
-    # Update counts
-    update_hand_count()
-    update_board_count()
+    # In practice mode, we need to update the player state first
+    # For now, just update visual - counts will update when state changes
+    # TODO: Update practice mode to use proper state management
 
 func _calculate_board_drop_position(card: Node, board_container: Container) -> int:
     """Calculate where a card should be inserted on the board based on drop position"""
@@ -805,36 +815,36 @@ func _on_return_to_shop_button_pressed() -> void:
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
     if GameModeManager.is_in_multiplayer_session():
-        ui_manager.show_waiting_indicator("refresh_button")
         NetworkManager.request_game_action.rpc_id(
             GameState.host_player_id,
             "refresh_shop",
             {}
         )
+        ui_manager.show_flash_message("Refreshing shop...", 0.5)
     else:
         print("Practice mode not implemented in SSOT architecture")
 
 func _on_freeze_button_pressed() -> void:
     """Handle freeze button press"""
     if GameModeManager.is_in_multiplayer_session():
-        ui_manager.show_waiting_indicator("freeze_button")
         NetworkManager.request_game_action.rpc_id(
             GameState.host_player_id,
             "toggle_freeze",
             {}
         )
+        ui_manager.show_flash_message("Toggling freeze...", 0.3)
     else:
         print("Practice mode not implemented in SSOT architecture")
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
     if GameModeManager.is_in_multiplayer_session():
-        ui_manager.show_waiting_indicator("upgrade_button")
         NetworkManager.request_game_action.rpc_id(
             GameState.host_player_id,
             "upgrade_shop",
             {}
         )
+        ui_manager.show_flash_message("Upgrading shop...", 0.5)
     else:
         print("Practice mode not implemented in SSOT architecture")
 
