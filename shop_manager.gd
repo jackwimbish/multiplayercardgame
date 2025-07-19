@@ -20,9 +20,15 @@ func display_shop(cards_data: Array, frozen_card_ids: Array):
     print("ShopManager: Displaying ", cards_data.size(), " cards, ", frozen_card_ids.size(), " frozen")
     
     # Clear existing display
+    # Use immediate removal to prevent visual duplicates for host
+    var cards_to_remove = []
     for child in shop_area.get_children():
         if child.name != "ShopAreaLabel":
-            child.queue_free()
+            cards_to_remove.append(child)
+    
+    for card in cards_to_remove:
+        shop_area.remove_child(card)
+        card.queue_free()
     
     # Create visual cards
     for i in range(cards_data.size()):

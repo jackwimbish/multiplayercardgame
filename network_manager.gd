@@ -196,6 +196,18 @@ func request_game_action(action: String, params: Dictionary):
                 print("NetworkManager: Syncing state for player ", player_id, " - shop: ", state_dict.get("shop_cards", []), ", hand: ", state_dict.get("hand_cards", []))
                 sync_player_state.rpc(player_id, state_dict)
         
+        # For host, immediately update displays after certain actions
+        if is_host and sender_id == local_player_id:
+            var player = GameState.get_local_player()
+            if player:
+                match action:
+                    "sell_minion":
+                        print("NetworkManager: Host sold minion, updating board display")
+                        call_deferred("_update_board_display", player)
+                    "purchase_card":
+                        print("NetworkManager: Host purchased card, updating shop display")
+                        call_deferred("_update_local_player_display")
+        
         # Sync card pool if it changed
         if result.get("pool_changed", false):
             sync_card_pool.rpc(GameState.shared_card_pool)
@@ -808,9 +820,15 @@ func _update_board_display(player: PlayerState):
         print("NetworkManager: Recreating board visuals...")
         
         # Clear only visual cards from board, not the label
+        # Use immediate removal for host to prevent duplicates
+        var cards_to_remove = []
         for child in board_container.get_children():
             if child.has_meta("card_id"):
-                child.queue_free()
+                cards_to_remove.append(child)
+        
+        for card in cards_to_remove:
+            board_container.remove_child(card)
+            card.queue_free()
         
         # Create new visual cards for each minion
         for card_id in player.board_minions:
@@ -856,9 +874,15 @@ func _validate_and_update_hand_visuals(player: PlayerState, game_board: Node):
         print("NetworkManager: Recreating all hand visuals...")
         
         # Clear only card visuals, not the label
+        # Use immediate removal for host to prevent duplicates
+        var cards_to_remove = []
         for child in hand_container.get_children():
             if child.has_meta("card_id"):
-                child.queue_free()
+                cards_to_remove.append(child)
+        
+        for card in cards_to_remove:
+            hand_container.remove_child(card)
+            card.queue_free()
         
         # Recreate all hand cards in correct order
         for card_id in player.hand_cards:
