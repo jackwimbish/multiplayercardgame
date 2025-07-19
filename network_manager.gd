@@ -358,6 +358,7 @@ func sync_player_state(player_id: int, player_data: Dictionary):
     var my_peer_id = multiplayer.get_unique_id()
     print("NetworkManager: Syncing player state for player ", player_id, " to peer ", my_peer_id)
     print("NetworkManager: Player data shop_cards: ", player_data.get("shop_cards", []))
+    print("NetworkManager: Player data board_minions: ", player_data.get("board_minions", []))
     
     # Validate the player_id in the data matches the parameter
     var data_player_id = player_data.get("player_id", -1)
@@ -428,6 +429,9 @@ func sync_player_state(player_id: int, player_data: Dictionary):
         # If this is the local player, update all displays
         if player_id == local_player_id:
             _update_local_player_display()
+            
+            # Also update board display in case board state changed
+            _update_board_display(player)
     else:
         # Create new player from data
         var new_player = PlayerState.new()
@@ -1104,6 +1108,8 @@ func _update_board_display(player: PlayerState):
     for child in board_container.get_children():
         if child.has_meta("card_id"):
             current_visuals.append(child.get_meta("card_id"))
+    
+    print("NetworkManager: _update_board_display - Visual cards: ", current_visuals, ", Data cards: ", player.board_minions)
     
     # Compare with data
     if current_visuals != player.board_minions:

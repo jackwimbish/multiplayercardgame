@@ -491,16 +491,21 @@ func _handle_board_to_shop_drop(card):
         return
     
     if GameModeManager.is_in_multiplayer_session():
-        # Find board index
-        var board_container = ui_manager.get_board_container()
+        # Get the player's current board state from data
+        var player = GameState.get_local_player()
+        if not player:
+            print("Error: Could not find local player")
+            _return_card_to_board(card)
+            return
+        
+        # Find the index of this card in the player's board_minions array
         var board_index = -1
-        var index = 0
-        for child in board_container.get_children():
-            if child.has_meta("card_id"):
-                if child == card:
-                    board_index = index
-                    break
-                index += 1
+        for i in range(player.board_minions.size()):
+            if player.board_minions[i] == card_id:
+                board_index = i
+                break
+        
+        print("Sell minion - card_id: ", card_id, ", board_index: ", board_index, ", board data: ", player.board_minions)
         
         if board_index >= 0:
             # Request sell action
