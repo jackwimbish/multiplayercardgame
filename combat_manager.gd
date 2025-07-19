@@ -82,6 +82,12 @@ func start_multiplayer_combat() -> void:
     # Generate deterministic seed for combat
     var combat_seed = Time.get_ticks_msec()
     
+    # Prepare shop state for combat phase (save frozen cards)
+    if main_layout:
+        var game_board = main_layout.get_parent()
+        if game_board and game_board.has_method("prepare_shop_for_combat"):
+            game_board.prepare_shop_for_combat()
+    
     # Change phase to combat
     NetworkManager.change_game_phase(GameState.GameMode.COMBAT)
     

@@ -325,43 +325,61 @@ func deal_cards_to_shop(player_id: int, num_cards: int) -> Array:
         return []
     
     var dealt_cards = []
-    var available_cards = []
     
-    # Get cards available for this player's shop tier
-    for card_id in shared_card_pool.keys():
-        var card_data = CardDatabase.get_card_data(card_id)
-        var card_tier = card_data.get("tier", 1)
-        var available_count = shared_card_pool[card_id]
+    # First, preserve frozen cards from previous turn
+    if player.frozen_card_ids.size() > 0:
+        print("Player ", player_id, " has ", player.frozen_card_ids.size(), " frozen cards to preserve: ", player.frozen_card_ids)
+        for frozen_card_id in player.frozen_card_ids:
+            dealt_cards.append(frozen_card_id)
         
-        if card_tier <= player.shop_tier and available_count > 0:
-            # Add multiple entries for cards with multiple copies
-            for i in available_count:
-                available_cards.append(card_id)
+        # Clear frozen cards after placing them (they're unfrozen now)
+        player.frozen_card_ids.clear()
     
-    # Randomly deal cards from available pool
-    available_cards.shuffle()
-    for i in range(min(num_cards, available_cards.size())):
-        var card_id = available_cards[i]
-        dealt_cards.append(card_id)
+    # Calculate how many new cards we need
+    var new_cards_needed = num_cards - dealt_cards.size()
+    
+    if new_cards_needed > 0:
+        var available_cards = []
         
-        # Remove from shared pool
-        shared_card_pool[card_id] -= 1
+        # Get cards available for this player's shop tier
+        for card_id in shared_card_pool.keys():
+            var card_data = CardDatabase.get_card_data(card_id)
+            var card_tier = card_data.get("tier", 1)
+            var available_count = shared_card_pool[card_id]
+            
+            if card_tier <= player.shop_tier and available_count > 0:
+                # Add multiple entries for cards with multiple copies
+                for i in available_count:
+                    available_cards.append(card_id)
+        
+        # Randomly deal new cards from available pool
+        available_cards.shuffle()
+        for i in range(min(new_cards_needed, available_cards.size())):
+            var card_id = available_cards[i]
+            dealt_cards.append(card_id)
+            
+            # Remove from shared pool
+            shared_card_pool[card_id] -= 1
     
     # Update player's shop
     player.shop_cards = dealt_cards
     print("Dealt ", dealt_cards.size(), " cards to player ", player_id, ": ", dealt_cards)
     return dealt_cards
 
-func return_cards_to_pool(card_ids: Array):
-    """Return cards from shops back to shared pool"""
+func return_cards_to_pool(card_ids: Array, frozen_card_ids: Array = []):
+    """Return cards from shops back to shared pool (excluding frozen cards)"""
+    var returned_count = 0
     for card_id in card_ids:
-        if shared_card_pool.has(card_id):
-            shared_card_pool[card_id] += 1
-        else:
-            # This shouldn't happen, but handle gracefully
-            shared_card_pool[card_id] = 1
+        # Don't return frozen cards to the pool
+        if card_id not in frozen_card_ids:
+            if shared_card_pool.has(card_id):
+                shared_card_pool[card_id] += 1
+            else:
+                # This shouldn't happen, but handle gracefully
+                shared_card_pool[card_id] = 1
+            returned_count += 1
     
-    print("Returned ", card_ids.size(), " cards to shared pool: ", card_ids)
+    print("Returned ", returned_count, " cards to shared pool (excluded ", frozen_card_ids.size(), " frozen cards)")
 
 func remove_card_from_pool(card_id: String):
     """Permanently remove a card from the pool (when purchased)"""

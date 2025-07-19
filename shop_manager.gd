@@ -32,7 +32,17 @@ func _init(shop_area_ref: Container, ui_manager_ref: UIManager):
     if GameState:
         GameState.game_mode_changed.connect(_on_game_mode_changed)
     
+    # Connect to local player's shop changed signal for multiplayer updates
+    _connect_player_signals()
+    
     print("ShopManager initialized")
+
+func _connect_player_signals():
+    """Connect to the local player's signals"""
+    var local_player = GameState.get_local_player()
+    if local_player and not local_player.shop_cards_changed.is_connected(_on_player_shop_changed):
+        local_player.shop_cards_changed.connect(_on_player_shop_changed)
+        print("ShopManager: Connected to local player shop_cards_changed signal")
 
 func _on_player_shop_changed(new_shop_cards: Array):
     """Handle when player's shop cards change (from network sync)"""
@@ -52,10 +62,18 @@ func _on_player_shop_changed(new_shop_cards: Array):
 
 func _on_game_mode_changed(new_mode: GameState.GameMode):
     """Handle game mode changes to apply pending shop updates"""
+    # Try to connect player signals if not already connected
+    _connect_player_signals()
+    
     if new_mode == GameState.GameMode.SHOP and _pending_shop_update.size() > 0:
         print("ShopManager: Applying pending shop update after mode change")
         _update_shop_display(_pending_shop_update)
         _pending_shop_update.clear()
+        
+    # When returning to shop, clear frozen cards as they've been unfrozen
+    if new_mode == GameState.GameMode.SHOP:
+        frozen_cards.clear()
+        _update_freeze_button_text()
 
 
 
@@ -567,3 +585,25 @@ func handle_shop_card_purchase_by_drag(card: Node) -> bool:
         return true
     
     return false 
+
+# === PHASE TRANSITION HELPERS ===
+
+func prepare_for_combat_phase() -> void:
+    """Prepare shop state for combat phase transition"""
+    # Sync frozen cards to player state for cross-turn persistence
+    var local_player = GameState.get_local_player()
+    if local_player:
+        local_player.frozen_card_ids = frozen_cards.duplicate()
+        print("ShopManager: Synced ", frozen_cards.size(), " frozen cards to PlayerState for next turn")
+        
+        # In multiplayer, sync the frozen cards to the server
+        if GameModeManager.is_in_multiplayer_session() and NetworkManager:
+            print("ShopManager: Syncing frozen cards to server")
+            NetworkManager.sync_player_state.rpc(local_player.player_id, local_player.to_dict())
+
+func restore_from_combat_phase() -> void:
+    """Restore shop state when returning from combat"""
+    # Frozen cards are now handled by GameState.deal_cards_to_shop
+    # which preserves them from the previous turn
+    frozen_cards.clear()  # Clear local tracking as cards are unfrozen on new turn
+    _update_freeze_button_text()

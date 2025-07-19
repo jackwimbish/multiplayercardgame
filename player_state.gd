@@ -29,6 +29,7 @@ var current_tavern_upgrade_cost: int = 5
 var hand_cards: Array = []  # Array of card IDs
 var board_minions: Array = []  # Array of card IDs  
 var shop_cards: Array = []  # Array of card IDs in player's shop
+var frozen_card_ids: Array = []  # Array of card IDs frozen for next turn
 
 # Turn state
 var is_ready_for_next_phase: bool = false
@@ -79,6 +80,7 @@ func reset_game_state():
     hand_cards.clear()
     board_minions.clear()
     shop_cards.clear()
+    frozen_card_ids.clear()
     is_ready_for_next_phase = false
     has_ended_turn = false
 
@@ -99,6 +101,7 @@ func to_dict() -> Dictionary:
         "hand_cards": hand_cards,
         "board_minions": board_minions,
         "shop_cards": shop_cards,
+        "frozen_card_ids": frozen_card_ids,
         "is_ready_for_next_phase": is_ready_for_next_phase,
         "has_ended_turn": has_ended_turn,
         "ping_ms": ping_ms
@@ -125,6 +128,7 @@ func from_dict(data: Dictionary):
     hand_cards = data.get("hand_cards", [])
     board_minions = data.get("board_minions", [])
     shop_cards = data.get("shop_cards", [])
+    frozen_card_ids = data.get("frozen_card_ids", [])
     is_ready_for_next_phase = data.get("is_ready_for_next_phase", false)
     has_ended_turn = data.get("has_ended_turn", false)
     ping_ms = data.get("ping_ms", 0)

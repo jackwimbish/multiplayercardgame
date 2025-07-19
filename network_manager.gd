@@ -755,11 +755,12 @@ func _deal_new_shops_for_all_players():
         
         print("  Dealing shop for player ", player_id, " (", player.player_name, ")")
         print("    Current shop cards: ", player.shop_cards)
+        print("    Frozen cards: ", player.frozen_card_ids)
         
-        # Return current shop cards to pool
-        GameState.return_cards_to_pool(player.shop_cards)
+        # Return current shop cards to pool (excluding frozen cards)
+        GameState.return_cards_to_pool(player.shop_cards, player.frozen_card_ids)
         
-        # Deal new cards
+        # Deal new cards (GameState.deal_cards_to_shop handles frozen cards)
         var shop_size = GameState.get_shop_size_for_tier(player.shop_tier)
         GameState.deal_cards_to_shop(player_id, shop_size)
         

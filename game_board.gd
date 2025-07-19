@@ -715,6 +715,11 @@ func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
     shop_manager.handle_upgrade_button_pressed()
 
+func prepare_shop_for_combat() -> void:
+    """Prepare shop state before transitioning to combat"""
+    if shop_manager:
+        shop_manager.prepare_for_combat_phase()
+
 # Note: End turn button removed - turns now advance automatically after combat
 # func _on_end_turn_button_pressed() -> void:
 #     """Handle end turn button press"""
