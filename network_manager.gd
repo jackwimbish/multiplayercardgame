@@ -338,6 +338,11 @@ func sync_card_pool(pool_data: Dictionary):
     print("NetworkManager: Syncing shared card pool with ", pool_data.size(), " unique cards")
     GameState.shared_card_pool = pool_data
     print("NetworkManager: GameState.shared_card_pool now has ", GameState.shared_card_pool.size(), " cards")
+    
+    # After card pool is synced, update local player display if we have their state
+    if !is_host and GameState.get_local_player():
+        print("NetworkManager: Card pool synced on client, updating display")
+        _update_local_player_display()
 
 @rpc("authority", "call_remote", "reliable")
 func show_error_message(message: String):
@@ -734,6 +739,11 @@ func _update_local_player_display():
     var game_board = get_tree().get_first_node_in_group("game_board")
     if not game_board:
         print("NetworkManager: No game board found for display update")
+        return
+    
+    # Check if card pool is initialized
+    if GameState.shared_card_pool.is_empty():
+        print("NetworkManager: Card pool not yet initialized, skipping shop display update")
         return
     
     # Get full card data for shop display

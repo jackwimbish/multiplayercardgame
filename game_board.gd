@@ -403,6 +403,10 @@ func _handle_hand_to_board_drop(card):
             # For host, don't return card since state sync happens immediately via call_local
             if !GameState.is_host():
                 _return_card_to_hand(card)
+            else:
+                # For host, remove the dragged card visual immediately
+                # The state sync will create the proper visual on the board
+                card.queue_free()
             
             # Show subtle feedback
             ui_manager.show_flash_message("Playing minion...", 0.5)
