@@ -130,6 +130,9 @@ func add_mode_indicator():
     top_ui.move_child(mode_label, 0)
     
     print("Mode indicator added: ", mode_label.text)
+    
+    # Now create the help button (it will position itself at index 0, pushing mode indicator to index 1)
+    ui_manager.create_help_button()
 
 func add_return_to_menu_button():
     """Add a Return to Menu button to the UI"""

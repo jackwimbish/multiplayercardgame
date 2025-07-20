@@ -72,6 +72,7 @@ func setup_ui():
     create_game_over_overlays()
     create_help_overlay()
     populate_enemy_board_selector()
+    # Note: Help button is created later by game_board after mode indicator
     connect_combat_ui_signals()
     connect_shop_ui_signals()
     
@@ -588,8 +589,7 @@ func create_flash_message_system() -> void:
 
 func create_help_overlay() -> void:
     """Create the help overlay system"""
-    # Create help toggle button first
-    _create_help_toggle_button()
+    # Note: Help button is created separately by create_help_button()
     
     # Create the overlay layer
     help_overlay = CanvasLayer.new()
@@ -892,8 +892,8 @@ func register_drag_drop_zones():
 
 # === HELP OVERLAY FUNCTIONS ===
 
-func _create_help_toggle_button() -> void:
-    """Create the help toggle button to the left of the mode indicator"""
+func create_help_button() -> void:
+    """Create the help toggle button at the beginning of TopUI"""
     # Get the TopUI container
     var top_ui = get_node_or_null("TopUI")
     if not top_ui:
@@ -910,25 +910,15 @@ func _create_help_toggle_button() -> void:
     help_toggle_button.flat = false
     help_toggle_button.custom_minimum_size = Vector2(120, 40)
     
-    # Add to TopUI container
+    # Add to TopUI container at the beginning
     top_ui.add_child(help_toggle_button)
+    top_ui.move_child(help_toggle_button, 0)  # Put at the very beginning
     
-    # Position after the mode indicator (which is at index 0)
-    # So help button will be at index 1
-    var mode_indicator_index = 0
-    for i in range(top_ui.get_child_count()):
-        if top_ui.get_child(i).name == "ModeIndicator":
-            mode_indicator_index = i
-            break
-    
-    # Move help button to position after mode indicator
-    top_ui.move_child(help_toggle_button, mode_indicator_index + 1)
-    
-    # Add a separator after the help button for margin
+    # Add a separator after the help button for right margin
     var separator = VSeparator.new()
     separator.custom_minimum_size.x = 20  # Add 20 pixels of spacing to the right
     top_ui.add_child(separator)
-    top_ui.move_child(separator, mode_indicator_index + 2)
+    top_ui.move_child(separator, 1)  # Put right after the help button
     
     # Connect signal
     help_toggle_button.pressed.connect(_on_help_toggle_pressed)
