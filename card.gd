@@ -82,11 +82,29 @@ func setup_card_data(data: Dictionary):
     var card_id = data.get("id", "")
     if card_id != "":
         var art_path = CardDatabase.get_card_art_path(card_id)
-        var art_texture = load(art_path)
+        
+        # Try different loading methods for better export compatibility
+        var art_texture = null
+        
+        # Method 1: Standard load
+        art_texture = load(art_path)
+        
+        # Method 2: ResourceLoader if standard load fails
+        if not art_texture:
+            art_texture = ResourceLoader.load(art_path, "Texture2D")
+        
+        # Method 3: Try as CompressedTexture2D
+        if not art_texture:
+            art_texture = ResourceLoader.load(art_path, "CompressedTexture2D")
+        
         if art_texture:
             $VBoxContainer/CardArt.texture = art_texture
         else:
             print("Warning: Could not load card art from: ", art_path)
+            # Try to use default art as fallback
+            var default_texture = load("res://assets/images/cards/default/default_card_art.png")
+            if default_texture:
+                $VBoxContainer/CardArt.texture = default_texture
 
 func _adjust_description_font_size(description: String) -> void:
     """Adjust font size based on description length"""

@@ -108,6 +108,9 @@ func _ready():
     # Initialize the card pool when the singleton is ready
     initialize_card_pool()
     
+    # Initialize card art cache for better export compatibility
+    CardDatabase.initialize_art_cache()
+    
     # Don't set up state here - wait for scene to properly initialize
 
 # === INITIALIZATION ===
