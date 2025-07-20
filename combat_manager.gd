@@ -1391,20 +1391,43 @@ func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_
     # animation_player.sound_minion_death.connect(_play_death_sound)
     # animation_player.sound_combat_end.connect(_play_combat_end_sound)
     
-    # Determine which boards are ours vs opponent
-    var our_minions: Array
-    var opponent_minions: Array
+    # We need to get the initial board states for animation
+    # The final states have dead minions with 0 health which breaks the animation
+    # Get the board states from our stored combat data or reconstruct from final states
+    var our_initial: Array = []
+    var opponent_initial: Array = []
     
+    # Reconstruct initial states from final states (all minions start at full health)
     if player1_id == GameState.local_player_id:
-        our_minions = player1_final
-        opponent_minions = player2_final
+        for minion in player1_final:
+            our_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+            })
+        for minion in player2_final:
+            opponent_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+            })
     else:
-        our_minions = player2_final
-        opponent_minions = player1_final
+        for minion in player2_final:
+            our_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+            })
+        for minion in player1_final:
+            opponent_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+            })
     
-    # Start animations
+    # Start animations with initial states
     if not skip_animations:
-        animation_player.play_combat_animation(combat_log, our_minions, opponent_minions)
+        animation_player.play_combat_animation(combat_log, our_initial, opponent_initial)
     else:
         # Skip directly to final state
         _on_combat_animations_complete()

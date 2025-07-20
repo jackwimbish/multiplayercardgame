@@ -37,6 +37,10 @@ var original_positions: Dictionary = {}
 # Track active tweens for cleanup
 var active_tweens: Array = []
 
+# Player name mapping for multiplayer combat
+var player_name: String = ""  # The player whose board is on the player side
+var enemy_name: String = ""   # The player whose board is on the enemy side
+
 func setup(player_board: Control, enemy_board: Control, ui_mgr: UIManager):
     """Initialize the animation player with required references"""
     player_board_container = player_board
@@ -48,10 +52,20 @@ func play_combat_animation(log: Array, player_minions: Array, enemy_minions: Arr
     if is_playing:
         return
     
+    print("CombatAnimationPlayer: Starting animation with ", log.size(), " actions")
+    print("  Player minions: ", player_minions.size(), " Enemy minions: ", enemy_minions.size())
+    
     combat_log = log
     current_action_index = 0
     is_playing = true
     is_skipping = false
+    
+    # Reset player name mapping
+    player_name = ""
+    enemy_name = ""
+    
+    # Extract player names from the combat log to help with minion identification
+    _extract_player_names_from_log(log)
     
     # Setup visual minions
     _setup_combat_visuals(player_minions, enemy_minions)
@@ -103,6 +117,8 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
             }
             player_index += 1
     
+    print("  Set up ", player_index, " player minions in combat_visuals")
+    
     # Track enemy minions
     var enemy_index = 0
     for child in enemy_board_container.get_children():
@@ -119,6 +135,42 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
                 "card_id": minion_data.get("card_id", "")
             }
             enemy_index += 1
+    
+    print("  Set up ", enemy_index, " enemy minions in combat_visuals")
+    print("  Total combat_visuals: ", combat_visuals.keys())
+
+func _extract_player_names_from_log(log: Array) -> void:
+    """Extract player names from combat log to map to our player/enemy boards"""
+    player_name = ""
+    enemy_name = ""
+    
+    # Look for attack actions to extract player names
+    for action in log:
+        if action.get("type") == "attack":
+            var attacker_id = action.get("attacker_id", "")
+            var defender_id = action.get("defender_id", "")
+            
+            # Extract names from format "PlayerName's CardName (pos X)"
+            var attacker_owner = _extract_owner_name(attacker_id)
+            var defender_owner = _extract_owner_name(defender_id)
+            
+            # The first time we see different owners, we can map them
+            if attacker_owner != "" and defender_owner != "" and attacker_owner != defender_owner:
+                # In multiplayer, we need to determine which player is "ours"
+                # This is a bit tricky without more context, but we can make educated guesses
+                # For now, let's assume the first attacker's owner in an attack between different players
+                # maps to whichever board that minion is on
+                print("CombatAnimationPlayer: Found player names - ", attacker_owner, " vs ", defender_owner)
+                
+                # We'll refine this mapping when we process the first attack
+                return
+
+func _extract_owner_name(minion_id: String) -> String:
+    """Extract owner name from minion ID string like 'PlayerName's CardName (pos X)'"""
+    var parts = minion_id.split("'s ")
+    if parts.size() >= 2:
+        return parts[0]
+    return ""
 
 func _store_original_positions() -> void:
     """Store the original positions of all minions"""
@@ -137,6 +189,7 @@ func _play_next_action() -> void:
         return
     
     var action = combat_log[current_action_index]
+    print("CombatAnimationPlayer: Playing action ", current_action_index, " of ", combat_log.size(), " - Type: ", action.get("type", "unknown"))
     current_action_index += 1
     
     match action.get("type", ""):
@@ -153,6 +206,7 @@ func _play_next_action() -> void:
             _animate_combat_end(action)
         _:
             # Skip unknown actions
+            print("  Skipping unknown action type: ", action.get("type", "unknown"))
             _play_next_action()
 
 func _animate_combat_start(action: Dictionary) -> void:
@@ -170,17 +224,29 @@ func _animate_first_attacker(action: Dictionary) -> void:
 
 func _animate_attack(action: Dictionary) -> void:
     """Animate a minion attack"""
+    print("CombatAnimationPlayer: Animating attack - ", action.get("attacker_id", ""), " vs ", action.get("defender_id", ""))
+    
     var attacker_id = _find_minion_by_name(action.get("attacker_id", ""))
     var defender_id = _find_minion_by_name(action.get("defender_id", ""))
     
+    print("  Found attacker: ", attacker_id, " defender: ", defender_id)
+    
     if not attacker_id or not defender_id:
+        print("  Could not find attacker or defender - skipping")
+        print("    attacker_id: ", attacker_id, " defender_id: ", defender_id)
         _play_next_action()
         return
     
     var attacker = combat_visuals.get(attacker_id)
     var defender = combat_visuals.get(defender_id)
     
-    if not attacker or not defender or attacker.is_dead or defender.is_dead:
+    if not attacker or not defender:
+        print("  Attacker or defender not found in combat_visuals")
+        _play_next_action()
+        return
+        
+    if attacker.is_dead or defender.is_dead:
+        print("  Skipping attack - attacker dead: ", attacker.is_dead, " defender dead: ", defender.is_dead)
         _play_next_action()
         return
     
@@ -194,6 +260,8 @@ func _animate_attack(action: Dictionary) -> void:
     # Apply damage
     attacker.current_health -= damage_to_attacker
     defender.current_health -= damage_to_defender
+    
+    print("  After attack - Attacker health: ", attacker.current_health, " Defender health: ", defender.current_health)
     
     # Check for deaths
     var has_deaths = false
@@ -214,6 +282,7 @@ func _animate_attack(action: Dictionary) -> void:
     # Pause before next action
     await player_board_container.get_tree().create_timer(PAUSE_BETWEEN_ATTACKS).timeout
     
+    print("  Attack animation complete, playing next action")
     _play_next_action()
 
 func _perform_melee_attack(attacker: Dictionary, defender: Dictionary, damage_to_attacker: int, damage_to_defender: int) -> void:
@@ -324,19 +393,71 @@ func _animate_combat_end(action: Dictionary) -> void:
 
 func _find_minion_by_name(name: String) -> String:
     """Find a minion in combat_visuals by its display name"""
-    # The name comes in format like "Player's Murloc Tidehunter (pos 0)"
-    # We need to match it to our combat_visuals keys
+    # The name comes in format like "PlayerName's CardName (pos X)"
+    print("  Looking for minion: ", name)
+    
+    # Extract the owner name from the minion ID
+    var owner = _extract_owner_name(name)
+    
+    # Extract position number
+    var pos_str = ""
+    var pos_index = name.find("(pos ")
+    if pos_index >= 0:
+        var end_index = name.find(")", pos_index)
+        if end_index > pos_index:
+            pos_str = name.substr(pos_index + 5, end_index - pos_index - 5)
+    
+    var position = pos_str.to_int() if pos_str != "" else -1
+    
+    print("    Owner: ", owner, " Position: ", position)
+    
+    # Build a list of all matches
+    var matches = []
     
     for key in combat_visuals:
         var visual = combat_visuals[key]
         var card_name = CardDatabase.get_card_data(visual.card_id).get("name", "Unknown")
         
-        # Check if this minion's name is in the action name
-        if name.contains(card_name):
-            # Also check position if provided
-            if name.contains("pos " + str(visual.position)):
-                return key
+        # Check if this minion's name and position match
+        if name.contains(card_name) and visual.position == position:
+            matches.append({
+                "key": key,
+                "side": "player" if key.begins_with("player_") else "enemy"
+            })
+            print("    Potential match: ", key, " (", card_name, " pos ", visual.position, ")")
     
+    # If we only found one match, use it
+    if matches.size() == 1:
+        print("    Single match found: ", matches[0].key)
+        # Establish owner mapping if needed
+        if owner != "" and matches[0].side == "player" and player_name == "":
+            player_name = owner
+            print("    Established player name: ", player_name)
+        elif owner != "" and matches[0].side == "enemy" and enemy_name == "":
+            enemy_name = owner
+            print("    Established enemy name: ", enemy_name)
+        return matches[0].key
+    
+    # If we found multiple matches, use owner info to disambiguate
+    if matches.size() > 1:
+        print("    Multiple matches found, using owner info")
+        for match in matches:
+            # If we haven't established names yet, return the first match and establish
+            if player_name == "" or enemy_name == "":
+                if match.side == "player" and player_name == "":
+                    player_name = owner
+                    print("    Established player name: ", player_name)
+                elif match.side == "enemy" and enemy_name == "":
+                    enemy_name = owner
+                    print("    Established enemy name: ", enemy_name)
+                return match.key
+            
+            # We have names, match based on owner
+            if (owner == player_name and match.side == "player") or (owner == enemy_name and match.side == "enemy"):
+                print("    Owner match found: ", match.key)
+                return match.key
+    
+    print("    No match found in combat_visuals")
     return ""
 
 func _show_final_state() -> void:
