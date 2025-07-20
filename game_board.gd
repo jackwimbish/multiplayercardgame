@@ -18,6 +18,12 @@ signal game_over(winner: String)
 var shop_manager
 var combat_manager
 
+# Battlecry selection state
+var is_selecting_battlecry_target: bool = false
+var battlecry_card_being_played: Node = null
+var battlecry_card_id: String = ""
+var battlecry_board_position: int = -1
+
 # Constants are now in GameState singleton
 
 # Note: Hand/board size tracking and UI constants moved to UIManager
@@ -28,6 +34,9 @@ func _ready():
     
     # Initialize GameState for the current game mode
     GameState.initialize_game_state()
+    
+    # Enable input for battlecry handling
+    set_process_unhandled_input(true)
     
     # Setup game mode specific features
     setup_game_mode()
@@ -174,6 +183,21 @@ func _on_player_victorious(player_id: int):
         ui_manager.show_victory_screen(1)
 
 func _on_card_clicked(card_node):
+    # Check if we're in battlecry target selection mode
+    if is_selecting_battlecry_target:
+        # Check if the clicked card is on the board
+        if card_node.get_parent() == ui_manager.get_board_container():
+            # Find the index of this card on the board
+            var board_container = ui_manager.get_board_container()
+            var index = 0
+            for child in board_container.get_children():
+                if child == card_node and child.has_meta("card_id"):
+                    _on_battlecry_target_selected(index)
+                    return
+                elif child.has_meta("card_id"):
+                    index += 1
+        return
+    
     # Don't show card details if we're in combat mode
     if GameState.current_mode == GameState.GameMode.COMBAT:
         return
@@ -385,31 +409,34 @@ func _handle_hand_to_board_drop(card):
                     break
         
         if card_id != "":
+            # Check if card has battlecry
+            var abilities = card_data.get("abilities", [])
+            var has_targetable_battlecry = false
+            
+            for ability in abilities:
+                if ability.get("type") == "battlecry" and ability.get("target") == "other_friendly_minion":
+                    has_targetable_battlecry = true
+                    break
+            
             # Calculate board position
             var board_container = ui_manager.get_board_container()
             var board_position = _calculate_board_drop_position(card, board_container)
             
-            # Request play card action
-            NetworkManager.request_game_action.rpc_id(
-                GameState.host_player_id,
-                "play_card",
-                {
-                    "card_id": card_id,
-                    "board_position": board_position
-                }
-            )
-            
-            # For non-host players, return card to hand - visual state will update when host responds
-            # For host, don't return card since state sync happens immediately via call_local
-            if !GameState.is_host():
+            # If has battlecry and there are valid targets, enter selection mode
+            if has_targetable_battlecry and get_board_size() > 0:
+                # Store card info for later
+                battlecry_card_being_played = card
+                battlecry_card_id = card_id
+                battlecry_board_position = board_position
+                
+                # Return card to hand during selection
                 _return_card_to_hand(card)
+                
+                # Enter target selection mode
+                _enter_battlecry_target_mode()
             else:
-                # For host, remove the dragged card visual immediately
-                # The state sync will create the proper visual on the board
-                card.queue_free()
-            
-            # Show subtle feedback
-            ui_manager.show_flash_message("Playing minion...", 0.5)
+                # No battlecry or no valid targets - play normally
+                _complete_play_card(card, card_id, board_position, -1)
         else:
             print("Error: Could not find card ID for ", card_name)
             _return_card_to_hand(card)
@@ -515,7 +542,8 @@ func _handle_board_to_shop_drop(card):
         # Find the index of this card in the player's board_minions array
         var board_index = -1
         for i in range(player.board_minions.size()):
-            if player.board_minions[i] == card_id:
+            var minion = player.board_minions[i]
+            if minion.get("card_id", "") == card_id:
                 board_index = i
                 break
         
@@ -641,7 +669,15 @@ func _calculate_board_drop_position(card: Node, board_container: Container) -> i
     # If we get here, add to end
     return position
 
-# _unhandled_input removed - now handled by DragDropManager
+func _unhandled_input(event):
+    # Check for right-click to cancel battlecry selection
+    if is_selecting_battlecry_target and event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+            # Cancel battlecry selection and return card to hand
+            _return_card_to_hand(battlecry_card_being_played)
+            _exit_battlecry_target_mode()
+            ui_manager.show_flash_message("Battlecry cancelled", 1.0)
+            get_viewport().set_input_as_handled()
 
 # Visual feedback functions moved to DragDropManager
 
@@ -972,3 +1008,111 @@ func _sync_board_state_to_network():
 # Will implement proper testing system later
 
 # Combat preparation functions moved to CombatManager
+# === BATTLECRY FUNCTIONS ===
+
+func _enter_battlecry_target_mode():
+    """Enter battlecry target selection mode"""
+    is_selecting_battlecry_target = true
+    print("Entering battlecry target selection mode")
+    
+    # Highlight valid targets
+    var board_container = ui_manager.get_board_container()
+    var valid_targets = 0
+    for child in board_container.get_children():
+        if child.has_meta("card_id"):
+            # Add glowing outline to valid targets
+            _add_battlecry_target_highlight(child)
+            valid_targets += 1
+    
+    print("Found ", valid_targets, " valid battlecry targets")
+    
+    # Show instruction message
+    ui_manager.show_flash_message("Click a minion to buff +1/+1 (Right-click to cancel)", 0)
+
+func _add_battlecry_target_highlight(card: Node):
+    """Add visual highlight to a valid battlecry target"""
+    # Create a glowing outline effect
+    var outline = ReferenceRect.new()
+    outline.name = "BattlecryTargetOutline"
+    outline.border_color = Color(1.0, 0.843, 0.0, 1.0)  # Gold color
+    outline.border_width = 5  # Thicker border for visibility
+    outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    # Match the card's size
+    outline.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    
+    card.add_child(outline)
+    
+    # Add pulsing animation
+    var tween = create_tween()
+    tween.set_loops()
+    tween.tween_property(outline, "modulate:a", 0.3, 0.5)
+    tween.tween_property(outline, "modulate:a", 1.0, 0.5)
+    
+    # Also add a slight scale animation to the card
+    var card_tween = create_tween()
+    card_tween.set_loops()
+    card_tween.tween_property(card, "scale", Vector2(1.05, 1.05), 0.5)
+    card_tween.tween_property(card, "scale", Vector2(1.0, 1.0), 0.5)
+
+func _remove_all_battlecry_highlights():
+    """Remove all battlecry target highlights"""
+    var board_container = ui_manager.get_board_container()
+    for child in board_container.get_children():
+        if child.has_meta("card_id"):
+            var outline = child.get_node_or_null("BattlecryTargetOutline")
+            if outline:
+                outline.queue_free()
+            # Reset scale
+            child.scale = Vector2(1.0, 1.0)
+
+func _exit_battlecry_target_mode():
+    """Exit battlecry target selection mode"""
+    is_selecting_battlecry_target = false
+    _remove_all_battlecry_highlights()
+    
+    # Clear stored data
+    battlecry_card_being_played = null
+    battlecry_card_id = ""
+    battlecry_board_position = -1
+
+func _on_battlecry_target_selected(target_index: int):
+    """Handle battlecry target selection"""
+    if not is_selecting_battlecry_target:
+        return
+    
+    # Complete the play with the selected target
+    # Note: battlecry_card_being_played is already in hand, so we pass null to avoid double-handling
+    _complete_play_card(null, battlecry_card_id, battlecry_board_position, target_index)
+    
+    # Exit selection mode
+    _exit_battlecry_target_mode()
+
+func _complete_play_card(card: Node, card_id: String, board_position: int, battlecry_target: int):
+    """Complete playing a card with optional battlecry target"""
+    # Request play card action with battlecry target
+    var params = {
+        "card_id": card_id,
+        "board_position": board_position
+    }
+    
+    if battlecry_target >= 0:
+        params["battlecry_target"] = battlecry_target
+    
+    NetworkManager.request_game_action.rpc_id(
+        GameState.host_player_id,
+        "play_card",
+        params
+    )
+    
+    # For battlecry cards, the card is already in hand, so just remove it
+    # For non-battlecry cards, return to hand for non-host players
+    if card and is_instance_valid(card):
+        if !GameState.is_host():
+            _return_card_to_hand(card)
+        else:
+            # For host, remove the card from hand immediately since state will update
+            card.queue_free()
+    
+    # Show subtle feedback
+    ui_manager.show_flash_message("Playing minion...", 0.5)

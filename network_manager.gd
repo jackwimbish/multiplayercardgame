@@ -810,7 +810,9 @@ func _update_board_display(player: PlayerState):
         needs_recreation = true
     else:
         for i in range(current_visuals.size()):
-            if current_visuals[i] != player.board_minions[i]:
+            var minion = player.board_minions[i]
+            var minion_card_id = minion.get("card_id", "") if minion is Dictionary else minion
+            if current_visuals[i] != minion_card_id:
                 needs_recreation = true
                 break
     
@@ -831,17 +833,33 @@ func _update_board_display(player: PlayerState):
             card.queue_free()
         
         # Create new visual cards for each minion
-        for card_id in player.board_minions:
+        for minion in player.board_minions:
+            var card_id = minion.get("card_id", "")
             var card_data = CardDatabase.get_card_data(card_id).duplicate()
             card_data["id"] = card_id
             
-            # Create visual card with drag handlers
-            var custom_handlers = {"drag_started": game_board._on_card_drag_started}
+            # Override base stats with current stats
+            card_data["attack"] = minion.get("current_attack", card_data.get("attack", 0))
+            card_data["health"] = minion.get("current_health", card_data.get("health", 1))
+            
+            # Create visual card with drag and click handlers
+            var custom_handlers = {
+                "drag_started": game_board._on_card_drag_started,
+                "card_clicked": game_board._on_card_clicked
+            }
             var card_visual = CardFactory.create_card(card_data, card_id, custom_handlers)
             
             # Set metadata
             card_visual.set_meta("card_id", card_id)
             card_visual.set_meta("is_board_card", true)
+            
+            # Check if stats are buffed and set visual indicator
+            var base_data = CardDatabase.get_card_data(card_id)
+            var is_buffed = (minion.get("current_attack", 0) > base_data.get("attack", 0) or 
+                            minion.get("current_health", 1) > base_data.get("health", 1))
+            
+            if is_buffed and card_visual.has_node("VBoxContainer/BottomRow/StatsLabel"):
+                card_visual.get_node("VBoxContainer/BottomRow/StatsLabel").modulate = Color.GREEN
             
             board_container.add_child(card_visual)
         

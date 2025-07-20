@@ -25,7 +25,7 @@ var current_tavern_upgrade_cost: int = 5
 
 # Card collections
 var hand_cards: Array = []  # Array of card IDs
-var board_minions: Array = []  # Array of card IDs  
+var board_minions: Array = []  # Array of minion objects with stats {card_id, current_attack, current_health}  
 var shop_cards: Array = []  # Array of card IDs in player's shop
 var frozen_card_ids: Array = []  # Array of card IDs frozen for next turn
 
@@ -133,6 +133,52 @@ func from_dict(data: Dictionary):
     
     # In SSOT architecture, NetworkManager handles all display updates
     # No signals emitted here
+
+# === MINION HELPER FUNCTIONS ===
+
+func add_minion_to_board(card_id: String, position: int = -1) -> Dictionary:
+    """Add a minion to the board with base stats"""
+    var card_data = CardDatabase.get_card_data(card_id)
+    if card_data.is_empty():
+        return {}
+    
+    var minion = {
+        "card_id": card_id,
+        "current_attack": card_data.get("attack", 0),
+        "current_health": card_data.get("health", 1)
+    }
+    
+    if position >= 0 and position <= board_minions.size():
+        board_minions.insert(position, minion)
+    else:
+        board_minions.append(minion)
+    
+    return minion
+
+func remove_minion_from_board(index: int) -> Dictionary:
+    """Remove a minion from the board by index"""
+    if index >= 0 and index < board_minions.size():
+        return board_minions.pop_at(index)
+    return {}
+
+func get_minion_at_index(index: int) -> Dictionary:
+    """Get minion data at specific board index"""
+    if index >= 0 and index < board_minions.size():
+        return board_minions[index]
+    return {}
+
+func apply_buff_to_minion(index: int, attack_buff: int, health_buff: int):
+    """Apply stat buffs to a minion at the given index"""
+    if index >= 0 and index < board_minions.size():
+        board_minions[index]["current_attack"] += attack_buff
+        board_minions[index]["current_health"] += health_buff
+
+func get_board_minion_ids() -> Array:
+    """Get array of just the card IDs for compatibility"""
+    var ids = []
+    for minion in board_minions:
+        ids.append(minion.get("card_id", ""))
+    return ids
 
 # === DEBUG FUNCTIONS ===
 

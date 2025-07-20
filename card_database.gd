@@ -27,11 +27,22 @@ const CARDS = {
     "rockpool_hunter": {
         "type": "minion",
         "name": "Rockpool Hunter",
-        "description": "Battlecry: Give a friendly Murloc +1/+1.",
+        "description": "Battlecry: Give another friendly minion +1/+1.",
         "attack": 2,
         "health": 3,
         "tier": 1,
-        "cost": 3
+        "cost": 3,
+        "abilities": [
+            {
+                "type": "battlecry",
+                "target": "other_friendly_minion",
+                "effect": {
+                    "type": "buff",
+                    "attack": 1,
+                    "health": 1
+                }
+            }
+        ]
     },
     
     # Tier 2 Cards (15 copies each)

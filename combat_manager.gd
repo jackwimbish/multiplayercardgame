@@ -588,12 +588,17 @@ func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, 
     
     # Create visual representations of opponent's minions
     for i in range(opponent_board.size()):
-        var card_id = opponent_board[i]
+        var minion = opponent_board[i]
+        var card_id = minion.get("card_id", "")
         var card_data = CardDatabase.get_card_data(card_id).duplicate()
         
         if card_data.is_empty():
             print("Warning: Could not find card data for ", card_id)
             continue
+        
+        # Override with current stats to show buffs
+        card_data["attack"] = minion.get("current_attack", card_data.get("attack", 0))
+        card_data["health"] = minion.get("current_health", card_data.get("health", 1))
         
         # Create enemy card using CardFactory
         var enemy_card = CardFactory.create_card(card_data, card_id)
@@ -604,6 +609,13 @@ func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, 
         
         # Add visual indication this is an enemy
         enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
+        
+        # Check if minion is buffed and apply green color
+        var base_card = CardDatabase.get_card_data(card_id)
+        var is_buffed = (minion.get("current_attack", 0) > base_card.get("attack", 0) or 
+                         minion.get("current_health", 1) > base_card.get("health", 1))
+        if is_buffed and enemy_card.has_node("VBoxContainer/BottomRow/StatsLabel"):
+            enemy_card.get_node("VBoxContainer/BottomRow/StatsLabel").modulate = Color.GREEN
         
         main_layout.get_node("ShopArea").add_child(enemy_card)
 
@@ -1125,24 +1137,28 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     var original_p2_count = player2_board.size()
     
     for i in range(player1_board.size()):
-        var card_data = CardDatabase.get_card_data(player1_board[i])
+        var minion = player1_board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         player1_minions.append({
-            "id": player1_board[i],
+            "id": card_id,
             "position": i,
-            "attack": card_data.get("attack", 1),
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
+            "attack": minion.get("current_attack", card_data.get("attack", 1)),
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
             "owner": player1_name
         })
     
     for i in range(player2_board.size()):
-        var card_data = CardDatabase.get_card_data(player2_board[i])
+        var minion = player2_board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         player2_minions.append({
-            "id": player2_board[i],
+            "id": card_id,
             "position": i,
-            "attack": card_data.get("attack", 1),
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
+            "attack": minion.get("current_attack", card_data.get("attack", 1)),
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
             "owner": player2_name
         })
     
@@ -1237,12 +1253,15 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
                 break
         if not found:
             # This position had a minion that died
+            var minion = player1_board[i]
+            var card_id = minion.get("card_id", "")
+            var card_data = CardDatabase.get_card_data(card_id)
             player1_final.append({
-                "card_id": player1_board[i],
+                "card_id": card_id,
                 "position": i,
                 "health": 0,
-                "max_health": CardDatabase.get_card_data(player1_board[i]).get("health", 1),
-                "attack": CardDatabase.get_card_data(player1_board[i]).get("attack", 1)
+                "max_health": minion.get("current_health", card_data.get("health", 1)),
+                "attack": minion.get("current_attack", card_data.get("attack", 1))
             })
     
     # Same for player 2
@@ -1261,12 +1280,15 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
                 break
         if not found:
             # This position had a minion that died
+            var minion = player2_board[i]
+            var card_id = minion.get("card_id", "")
+            var card_data = CardDatabase.get_card_data(card_id)
             player2_final.append({
-                "card_id": player2_board[i],
+                "card_id": card_id,
                 "position": i,
                 "health": 0,
-                "max_health": CardDatabase.get_card_data(player2_board[i]).get("health", 1),
-                "attack": CardDatabase.get_card_data(player2_board[i]).get("attack", 1)
+                "max_health": minion.get("current_health", card_data.get("health", 1)),
+                "attack": minion.get("current_attack", card_data.get("attack", 1))
             })
     
     return {"log": action_log, "player1_final": player1_final, "player2_final": player2_final}
@@ -1275,13 +1297,15 @@ func _create_final_state(board: Array) -> Array:
     """Create final state for a board with no combat (all minions at full health)"""
     var final_state = []
     for i in range(board.size()):
-        var card_data = CardDatabase.get_card_data(board[i])
+        var minion = board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         final_state.append({
-            "card_id": board[i],
+            "card_id": card_id,
             "position": i,
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
-            "attack": card_data.get("attack", 1)
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
+            "attack": minion.get("current_attack", card_data.get("attack", 1))
         })
     return final_state
 
