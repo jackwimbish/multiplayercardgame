@@ -273,6 +273,9 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         execute_attack(attacker, defender, action_log)
         attack_count += 1
         
+        # Check if attacker died
+        var attacker_died = attacker.current_health <= 0
+        
         # Remove dead minions
         player_minions = player_minions.filter(func(m): return m.current_health > 0)
         enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
@@ -290,11 +293,13 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
             GameState.take_damage(DEFAULT_COMBAT_DAMAGE, false)
             break
         
-        # Advance turn
-        if p_turn:
-            p_attacker_index += 1
-        else:
-            e_attacker_index += 1
+        # Advance turn - only increment index if attacker didn't die
+        # If attacker died, the array shifted left, so next attacker is at current index
+        if not attacker_died:
+            if p_turn:
+                p_attacker_index += 1
+            else:
+                e_attacker_index += 1
         p_turn = not p_turn
     
     # Handle max attacks reached
@@ -1230,25 +1235,25 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         defender.health -= attacker.attack
         
         # Check deaths
+        var attacker_died = false
         if attacker.health <= 0:
             action_log.append({"type": "death", "target_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown")})
-            var attacker_pos = attacker_list.find(attacker)
             attacker_list.erase(attacker)
-            # If the attacker died, we need to adjust the index since minions shift left
-            if p1_turn and p1_attacker_index > attacker_pos:
-                p1_attacker_index -= 1
-            elif not p1_turn and p2_attacker_index > attacker_pos:
-                p2_attacker_index -= 1
+            attacker_died = true
         
         if defender.health <= 0:
             action_log.append({"type": "death", "target_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown")})
             defender_list.erase(defender)
         
-        # Advance attacker index and switch turns
-        if p1_turn:
-            p1_attacker_index += 1
-        else:
-            p2_attacker_index += 1
+        # Advance attacker index only if the attacker didn't die
+        # If the attacker died, the array shifted left, so the next attacker is now at the current index
+        if not attacker_died:
+            if p1_turn:
+                p1_attacker_index += 1
+            else:
+                p2_attacker_index += 1
+        
+        # Switch turns
         p1_turn = not p1_turn
         attack_count += 1
     
