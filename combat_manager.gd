@@ -1158,7 +1158,8 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
             "attack": minion.get("current_attack", card_data.get("attack", 1)),
             "health": minion.get("current_health", card_data.get("health", 1)),
             "max_health": minion.get("current_health", card_data.get("health", 1)),
-            "owner": player1_name
+            "owner": player1_name,
+            "is_dead": false  # Track death state instead of removing
         })
     
     for i in range(player2_board.size()):
@@ -1172,7 +1173,8 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
             "attack": minion.get("current_attack", card_data.get("attack", 1)),
             "health": minion.get("current_health", card_data.get("health", 1)),
             "max_health": minion.get("current_health", card_data.get("health", 1)),
-            "owner": player2_name
+            "owner": player2_name,
+            "is_dead": false  # Track death state instead of removing
         })
     
     # Determine who goes first
@@ -1193,29 +1195,75 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     var p1_attacker_index = 0
     var p2_attacker_index = 0
     
-    while not player1_minions.is_empty() and not player2_minions.is_empty() and attack_count < max_attacks:
-        var attacker
-        var defender
-        var attacker_list
+    # Helper function to check if any minions are alive
+    var has_living_p1 = func(): 
+        for m in player1_minions:
+            if not m.is_dead:
+                return true
+        return false
+    
+    var has_living_p2 = func():
+        for m in player2_minions:
+            if not m.is_dead:
+                return true
+        return false
+    
+    # Helper function to get living defenders
+    var get_living_defenders = func(minion_list: Array) -> Array:
+        var living = []
+        for m in minion_list:
+            if not m.is_dead:
+                living.append(m)
+        return living
+    
+    while has_living_p1.call() and has_living_p2.call() and attack_count < max_attacks:
+        var attacker = null
         var defender_list
         
         if p1_turn:
-            attacker_list = player1_minions
-            defender_list = player2_minions
-            # Get next attacker in order (left to right)
-            if p1_attacker_index >= attacker_list.size():
+            # Find next living attacker for player 1
+            while p1_attacker_index < player1_minions.size():
+                if not player1_minions[p1_attacker_index].is_dead:
+                    attacker = player1_minions[p1_attacker_index]
+                    break
+                p1_attacker_index += 1
+            
+            # If we've gone through all minions, wrap around
+            if attacker == null:
                 p1_attacker_index = 0
-            attacker = attacker_list[p1_attacker_index]
+                while p1_attacker_index < player1_minions.size():
+                    if not player1_minions[p1_attacker_index].is_dead:
+                        attacker = player1_minions[p1_attacker_index]
+                        break
+                    p1_attacker_index += 1
+            
+            defender_list = get_living_defenders.call(player2_minions)
         else:
-            attacker_list = player2_minions
-            defender_list = player1_minions
-            # Get next attacker in order (left to right)
-            if p2_attacker_index >= attacker_list.size():
+            # Find next living attacker for player 2
+            while p2_attacker_index < player2_minions.size():
+                if not player2_minions[p2_attacker_index].is_dead:
+                    attacker = player2_minions[p2_attacker_index]
+                    break
+                p2_attacker_index += 1
+            
+            # If we've gone through all minions, wrap around
+            if attacker == null:
                 p2_attacker_index = 0
-            attacker = attacker_list[p2_attacker_index]
+                while p2_attacker_index < player2_minions.size():
+                    if not player2_minions[p2_attacker_index].is_dead:
+                        attacker = player2_minions[p2_attacker_index]
+                        break
+                    p2_attacker_index += 1
+            
+            defender_list = get_living_defenders.call(player1_minions)
         
-        # Choose random defender
-        defender = defender_list[rng.randi() % defender_list.size()]
+        # This shouldn't happen if our has_living checks work correctly
+        if attacker == null or defender_list.is_empty():
+            print("Combat error: No attacker or defenders found")
+            break
+        
+        # Choose random defender from living defenders
+        var defender = defender_list[rng.randi() % defender_list.size()]
         
         # Log attack with unique IDs and display names
         action_log.append({
@@ -1234,35 +1282,34 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         attacker.health -= defender.attack
         defender.health -= attacker.attack
         
-        # Check deaths
-        var attacker_died = false
-        if attacker.health <= 0:
+        # Mark deaths but don't remove from arrays
+        if attacker.health <= 0 and not attacker.is_dead:
             action_log.append({"type": "death", "target_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown")})
-            attacker_list.erase(attacker)
-            attacker_died = true
+            attacker.is_dead = true
         
-        if defender.health <= 0:
+        if defender.health <= 0 and not defender.is_dead:
             action_log.append({"type": "death", "target_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown")})
-            defender_list.erase(defender)
+            defender.is_dead = true
         
-        # Advance attacker index only if the attacker didn't die
-        # If the attacker died, the array shifted left, so the next attacker is now at the current index
-        if not attacker_died:
-            if p1_turn:
-                p1_attacker_index += 1
-            else:
-                p2_attacker_index += 1
+        # Always advance attacker index
+        if p1_turn:
+            p1_attacker_index += 1
+        else:
+            p2_attacker_index += 1
         
         # Switch turns
         p1_turn = not p1_turn
         attack_count += 1
     
-    # Determine winner
-    if player1_minions.is_empty() and player2_minions.is_empty():
+    # Determine winner based on living minions
+    var p1_alive = has_living_p1.call()
+    var p2_alive = has_living_p2.call()
+    
+    if not p1_alive and not p2_alive:
         action_log.append({"type": "combat_tie", "reason": "both_died"})
-    elif player1_minions.is_empty():
+    elif not p1_alive:
         action_log.append({"type": "combat_end", "winner": "player2"})
-    elif player2_minions.is_empty():
+    elif not p2_alive:
         action_log.append({"type": "combat_end", "winner": "player1"})
     else:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
