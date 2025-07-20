@@ -1048,21 +1048,38 @@ func _add_battlecry_target_highlight(card: Node):
     tween.set_loops()
     tween.tween_property(outline, "modulate:a", 0.3, 0.5)
     tween.tween_property(outline, "modulate:a", 1.0, 0.5)
+    # Store tween reference on the outline so we can kill it later
+    outline.set_meta("tween", tween)
     
     # Also add a slight scale animation to the card
     var card_tween = create_tween()
     card_tween.set_loops()
     card_tween.tween_property(card, "scale", Vector2(1.05, 1.05), 0.5)
     card_tween.tween_property(card, "scale", Vector2(1.0, 1.0), 0.5)
+    # Store tween reference on the card so we can kill it later
+    card.set_meta("battlecry_scale_tween", card_tween)
 
 func _remove_all_battlecry_highlights():
     """Remove all battlecry target highlights"""
     var board_container = ui_manager.get_board_container()
     for child in board_container.get_children():
         if child.has_meta("card_id"):
+            # Kill the scale tween if it exists
+            if child.has_meta("battlecry_scale_tween"):
+                var scale_tween = child.get_meta("battlecry_scale_tween")
+                if scale_tween and is_instance_valid(scale_tween):
+                    scale_tween.kill()
+                child.remove_meta("battlecry_scale_tween")
+            
+            # Remove the outline and kill its tween
             var outline = child.get_node_or_null("BattlecryTargetOutline")
             if outline:
+                if outline.has_meta("tween"):
+                    var outline_tween = outline.get_meta("tween")
+                    if outline_tween and is_instance_valid(outline_tween):
+                        outline_tween.kill()
                 outline.queue_free()
+            
             # Reset scale
             child.scale = Vector2(1.0, 1.0)
 
