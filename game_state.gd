@@ -26,7 +26,7 @@ var max_board_size: int = 7
 var current_matchups: Dictionary = {}  # player_id -> opponent_id
 var ghost_player_id: int = -1  # Player fighting ghost this round (-1 if none)
 const GHOST_PLAYER_ID = 0  # Special ID for ghost opponent
-const MAX_PLAYERS = 4
+const MAX_PLAYERS = 8
 
 # Backwards compatibility - delegate to local player
 var current_gold: int:

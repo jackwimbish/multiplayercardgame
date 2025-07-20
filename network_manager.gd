@@ -5,7 +5,7 @@ extends Node
 
 # Network configuration
 const DEFAULT_PORT = 9999
-const MAX_PLAYERS = 4  # For up to 4 player games
+const MAX_PLAYERS = 8  # For up to 8 player games
 const CONNECTION_TIMEOUT = 10.0  # seconds
 
 # Network state
