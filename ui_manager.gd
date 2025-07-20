@@ -944,6 +944,11 @@ func _get_help_text() -> String:
 [b]Game Basics:[/b]
 OpenBattlefields is an auto-battler where you build a team of minions to fight against opponents. The last player standing wins!
 
+[b]Card Stats:[/b]
+The numbers on the bottom left of each card show [color=yellow]Attack/Health[/color]
+• [b]Attack:[/b] Damage dealt when attacking
+• [b]Health:[/b] Damage needed to destroy the minion
+
 [b]Turn Structure:[/b]
 Each turn consists of two phases:
 • [b]Shop Phase:[/b] Buy minions, arrange your board, and prepare for combat
