@@ -1148,6 +1148,7 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         var card_data = CardDatabase.get_card_data(card_id)
         player1_minions.append({
             "id": card_id,
+            "unique_id": "p1_" + str(i),  # Unique identifier for this combat
             "position": i,
             "attack": minion.get("current_attack", card_data.get("attack", 1)),
             "health": minion.get("current_health", card_data.get("health", 1)),
@@ -1161,6 +1162,7 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         var card_data = CardDatabase.get_card_data(card_id)
         player2_minions.append({
             "id": card_id,
+            "unique_id": "p2_" + str(i),  # Unique identifier for this combat
             "position": i,
             "attack": minion.get("current_attack", card_data.get("attack", 1)),
             "health": minion.get("current_health", card_data.get("health", 1)),
@@ -1183,6 +1185,8 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     # Combat loop
     var max_attacks = 20
     var attack_count = 0
+    var p1_attacker_index = 0
+    var p2_attacker_index = 0
     
     while not player1_minions.is_empty() and not player2_minions.is_empty() and attack_count < max_attacks:
         var attacker
@@ -1193,17 +1197,26 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         if p1_turn:
             attacker_list = player1_minions
             defender_list = player2_minions
+            # Get next attacker in order (left to right)
+            if p1_attacker_index >= attacker_list.size():
+                p1_attacker_index = 0
+            attacker = attacker_list[p1_attacker_index]
         else:
             attacker_list = player2_minions
             defender_list = player1_minions
+            # Get next attacker in order (left to right)
+            if p2_attacker_index >= attacker_list.size():
+                p2_attacker_index = 0
+            attacker = attacker_list[p2_attacker_index]
         
-        # Choose attacker and defender
-        attacker = attacker_list[rng.randi() % attacker_list.size()]
+        # Choose random defender
         defender = defender_list[rng.randi() % defender_list.size()]
         
-        # Log attack with player names and positions
+        # Log attack with unique IDs and display names
         action_log.append({
             "type": "attack",
+            "attacker_unique_id": attacker.unique_id,
+            "defender_unique_id": defender.unique_id,
             "attacker_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown") + " (pos " + str(attacker.position) + ")",
             "defender_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown") + " (pos " + str(defender.position) + ")",
             "attacker_attack": attacker.attack,
@@ -1219,13 +1232,23 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         # Check deaths
         if attacker.health <= 0:
             action_log.append({"type": "death", "target_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown")})
+            var attacker_pos = attacker_list.find(attacker)
             attacker_list.erase(attacker)
+            # If the attacker died, we need to adjust the index since minions shift left
+            if p1_turn and p1_attacker_index > attacker_pos:
+                p1_attacker_index -= 1
+            elif not p1_turn and p2_attacker_index > attacker_pos:
+                p2_attacker_index -= 1
         
         if defender.health <= 0:
             action_log.append({"type": "death", "target_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown")})
             defender_list.erase(defender)
         
-        # Switch turns
+        # Advance attacker index and switch turns
+        if p1_turn:
+            p1_attacker_index += 1
+        else:
+            p2_attacker_index += 1
         p1_turn = not p1_turn
         attack_count += 1
     
@@ -1399,30 +1422,38 @@ func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_
     
     # Reconstruct initial states from final states (all minions start at full health)
     if player1_id == GameState.local_player_id:
-        for minion in player1_final:
+        for i in range(player1_final.size()):
+            var minion = player1_final[i]
             our_initial.append({
                 "card_id": minion.get("card_id", ""),
                 "current_attack": minion.get("attack", 1),
-                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p1_" + str(i)  # Consistent with combat simulation
             })
-        for minion in player2_final:
+        for i in range(player2_final.size()):
+            var minion = player2_final[i]
             opponent_initial.append({
                 "card_id": minion.get("card_id", ""),
                 "current_attack": minion.get("attack", 1),
-                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p2_" + str(i)  # Consistent with combat simulation
             })
     else:
-        for minion in player2_final:
+        for i in range(player2_final.size()):
+            var minion = player2_final[i]
             our_initial.append({
                 "card_id": minion.get("card_id", ""),
                 "current_attack": minion.get("attack", 1),
-                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p2_" + str(i)  # Consistent with combat simulation
             })
-        for minion in player1_final:
+        for i in range(player1_final.size()):
+            var minion = player1_final[i]
             opponent_initial.append({
                 "card_id": minion.get("card_id", ""),
                 "current_attack": minion.get("attack", 1),
-                "current_health": minion.get("max_health", 1)  # Use max_health for initial state
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p1_" + str(i)  # Consistent with combat simulation
             })
     
     # Start animations with initial states

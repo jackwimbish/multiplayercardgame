@@ -41,6 +41,9 @@ var active_tweens: Array = []
 var player_name: String = ""  # The player whose board is on the player side
 var enemy_name: String = ""   # The player whose board is on the enemy side
 
+# Unique ID mapping for robust minion identification
+var unique_id_to_visual_key: Dictionary = {}  # Maps unique_id -> visual key (e.g., "p1_0" -> "player_0")
+
 func setup(player_board: Control, enemy_board: Control, ui_mgr: UIManager):
     """Initialize the animation player with required references"""
     player_board_container = player_board
@@ -92,6 +95,7 @@ func skip_combat() -> void:
 func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
     """Setup visual tracking for all minions in combat"""
     combat_visuals.clear()
+    unique_id_to_visual_key.clear()
     
     # Track player minions
     var player_index = 0
@@ -104,7 +108,8 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
             if original_stats:
                 original_stats_text = original_stats.text
             
-            combat_visuals["player_" + str(player_index)] = {
+            var visual_key = "player_" + str(player_index)
+            combat_visuals[visual_key] = {
                 "node": child,
                 "side": "player",
                 "position": player_index,
@@ -115,6 +120,13 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
                 "card_id": minion_data.get("card_id", ""),
                 "original_stats_text": original_stats_text
             }
+            
+            # Map unique ID to visual key if available
+            var unique_id = minion_data.get("unique_id", "")
+            if unique_id != "":
+                unique_id_to_visual_key[unique_id] = visual_key
+                print("    Mapped unique ID ", unique_id, " to ", visual_key)
+            
             player_index += 1
     
     print("  Set up ", player_index, " player minions in combat_visuals")
@@ -124,7 +136,8 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
     for child in enemy_board_container.get_children():
         if child.name.begins_with("EnemyMinion_") and enemy_index < enemy_minions.size():
             var minion_data = enemy_minions[enemy_index]
-            combat_visuals["enemy_" + str(enemy_index)] = {
+            var visual_key = "enemy_" + str(enemy_index)
+            combat_visuals[visual_key] = {
                 "node": child,
                 "side": "enemy",
                 "position": enemy_index,
@@ -134,10 +147,18 @@ func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
                 "is_dead": false,
                 "card_id": minion_data.get("card_id", "")
             }
+            
+            # Map unique ID to visual key if available
+            var unique_id = minion_data.get("unique_id", "")
+            if unique_id != "":
+                unique_id_to_visual_key[unique_id] = visual_key
+                print("    Mapped unique ID ", unique_id, " to ", visual_key)
+            
             enemy_index += 1
     
     print("  Set up ", enemy_index, " enemy minions in combat_visuals")
     print("  Total combat_visuals: ", combat_visuals.keys())
+    print("  Unique ID mappings: ", unique_id_to_visual_key)
 
 func _extract_player_names_from_log(log: Array) -> void:
     """Extract player names from combat log to map to our player/enemy boards"""
@@ -226,8 +247,24 @@ func _animate_attack(action: Dictionary) -> void:
     """Animate a minion attack"""
     print("CombatAnimationPlayer: Animating attack - ", action.get("attacker_id", ""), " vs ", action.get("defender_id", ""))
     
-    var attacker_id = _find_minion_by_name(action.get("attacker_id", ""))
-    var defender_id = _find_minion_by_name(action.get("defender_id", ""))
+    # First try to use unique IDs if available
+    var attacker_unique_id = action.get("attacker_unique_id", "")
+    var defender_unique_id = action.get("defender_unique_id", "")
+    
+    var attacker_id = ""
+    var defender_id = ""
+    
+    if attacker_unique_id != "" and defender_unique_id != "":
+        # Use unique ID mapping
+        attacker_id = unique_id_to_visual_key.get(attacker_unique_id, "")
+        defender_id = unique_id_to_visual_key.get(defender_unique_id, "")
+        print("  Using unique IDs - attacker: ", attacker_unique_id, " -> ", attacker_id, ", defender: ", defender_unique_id, " -> ", defender_id)
+    
+    # Fall back to name-based search if unique IDs not available or not found
+    if attacker_id == "" or defender_id == "":
+        print("  Falling back to name-based search")
+        attacker_id = _find_minion_by_name(action.get("attacker_id", ""))
+        defender_id = _find_minion_by_name(action.get("defender_id", ""))
     
     print("  Found attacker: ", attacker_id, " defender: ", defender_id)
     
