@@ -97,6 +97,9 @@ func skip_combat() -> void:
             tween.kill()
     active_tweens.clear()
     
+    # Clean up any floating damage labels
+    _cleanup_damage_labels()
+    
     # Reset all positions before showing final state
     # This ensures cards are in their proper positions when skipping
     for key in original_positions:
@@ -406,8 +409,20 @@ func _show_damage_number(target_node: Node, damage: int) -> void:
     tween.tween_property(damage_label, "position:y", damage_label.position.y - DAMAGE_NUMBER_RISE, DAMAGE_NUMBER_DURATION)
     tween.tween_property(damage_label, "modulate:a", 0.0, DAMAGE_NUMBER_DURATION)
     
-    # Remove after animation
-    tween.finished.connect(func(): damage_label.queue_free())
+    # Remove after animation with safety check
+    tween.finished.connect(func(): 
+        if damage_label and is_instance_valid(damage_label):
+            damage_label.queue_free()
+    )
+
+func _cleanup_damage_labels() -> void:
+    """Clean up any floating damage labels"""
+    # Find all damage labels in both containers
+    for container in [player_board_container, enemy_board_container]:
+        if container and is_instance_valid(container):
+            for child in container.get_children():
+                if child.name.begins_with("DamageLabel") and is_instance_valid(child):
+                    child.queue_free()
 
 func _shake_minion(minion_node: Node) -> void:
     """Apply a small shake effect to a minion when hit"""
@@ -549,6 +564,10 @@ func _on_combat_animation_complete() -> void:
     """Called when all combat animations are complete"""
     is_playing = false
     active_tweens.clear()
+    
+    # Clean up any remaining damage labels
+    _cleanup_damage_labels()
+    
     _show_final_state()
     
     # Restore original stats text to prevent persistence of combat damage

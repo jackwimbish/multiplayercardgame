@@ -156,10 +156,17 @@ func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
     print("Returning to shop from combat")
     
-    # Check if the local player is eliminated - if so, don't return to shop
-    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+    # Check if the local player is eliminated
+    var is_eliminated = GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id)
+    
+    # If eliminated but NOT the host, don't return to shop
+    if is_eliminated and not NetworkManager.is_host:
         print("Player is eliminated - staying on defeat screen")
         return
+    
+    # If eliminated AND host, continue to advance the game for others
+    if is_eliminated and NetworkManager.is_host:
+        print("Host is eliminated but advancing game for other players")
     
     if GameModeManager.is_in_multiplayer_session():
         # In multiplayer, only host can advance turn and change phase
@@ -964,9 +971,10 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
     """Handle game mode changes from network sync"""
     print("CombatManager: Game mode changed to ", GameState.GameMode.keys()[new_mode])
     
-    # If player is eliminated, don't process mode changes
-    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
-        print("CombatManager: Player is eliminated - ignoring mode change")
+    # If player is eliminated AND not the host, don't process mode changes
+    var is_eliminated = GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id)
+    if is_eliminated and not NetworkManager.is_host:
+        print("CombatManager: Player is eliminated and not host - ignoring mode change")
         return
     
     # Update UI based on new mode

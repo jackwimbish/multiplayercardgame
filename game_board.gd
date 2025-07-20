@@ -24,6 +24,10 @@ var battlecry_card_being_played: Node = null
 var battlecry_card_id: String = ""
 var battlecry_board_position: int = -1
 
+# Victory/defeat overlay state - show after combat animations
+var pending_defeat_placement: int = -1
+var pending_victory: bool = false
+
 # Constants are now in GameState singleton
 
 # Note: Hand/board size tracking and UI constants moved to UIManager
@@ -46,6 +50,7 @@ func _ready():
     GameState.game_over.connect(_on_game_over)
     GameState.player_eliminated.connect(_on_player_eliminated)
     GameState.player_victorious.connect(_on_player_victorious)
+    GameState.game_mode_changed.connect(_on_game_mode_changed)
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
@@ -76,6 +81,10 @@ func _connect_shop_to_player_signals():
 func setup_game_mode():
     """Setup game mode specific features"""
     print("Setting up game for mode: ", GameModeManager.get_mode_name())
+    
+    # Clear any pending victory/defeat states from previous games
+    pending_defeat_placement = -1
+    pending_victory = false
     
     # Add mode-specific UI indicators
     add_mode_indicator()
@@ -173,17 +182,42 @@ func _on_player_eliminated(player_id: int, placement: int):
     """Handle when a player is eliminated"""
     print("Player ", player_id, " eliminated at ", placement, " place")
     
-    # If it's the local player, show the loss screen
+    # If it's the local player, store the defeat state
     if player_id == GameState.local_player_id:
-        ui_manager.show_loss_screen(placement)
+        # If we're already in shop mode (shouldn't happen), show immediately
+        if GameState.current_mode == GameState.GameMode.SHOP:
+            ui_manager.show_loss_screen(placement)
+        else:
+            # Store for display when returning to shop
+            pending_defeat_placement = placement
+            print("Storing defeat state for display after combat")
 
 func _on_player_victorious(player_id: int):
     """Handle when a player wins"""
     print("Player ", player_id, " is victorious!")
     
-    # If it's the local player, show the victory screen
+    # If it's the local player, store the victory state
     if player_id == GameState.local_player_id:
-        ui_manager.show_victory_screen(1)
+        # If we're already in shop mode (shouldn't happen), show immediately
+        if GameState.current_mode == GameState.GameMode.SHOP:
+            ui_manager.show_victory_screen(1)
+        else:
+            # Store for display when returning to shop
+            pending_victory = true
+            print("Storing victory state for display after combat")
+
+func _on_game_mode_changed(new_mode: GameState.GameMode):
+    """Handle game mode changes - check for pending victory/defeat overlays"""
+    if new_mode == GameState.GameMode.SHOP:
+        # Check for pending victory/defeat when returning to shop
+        if pending_defeat_placement > 0:
+            print("Showing defeat screen on return to shop")
+            ui_manager.show_loss_screen(pending_defeat_placement)
+            pending_defeat_placement = -1
+        elif pending_victory:
+            print("Showing victory screen on return to shop")
+            ui_manager.show_victory_screen(1)
+            pending_victory = false
 
 func _on_card_clicked(card_node):
     # Check if we're in battlecry target selection mode
