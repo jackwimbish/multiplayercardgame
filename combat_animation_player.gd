@@ -97,6 +97,12 @@ func skip_combat() -> void:
             tween.kill()
     active_tweens.clear()
     
+    # Reset all positions before showing final state
+    # This ensures cards are in their proper positions when skipping
+    for key in original_positions:
+        if combat_visuals.has(key) and combat_visuals[key].node and is_instance_valid(combat_visuals[key].node):
+            combat_visuals[key].node.global_position = original_positions[key]
+    
     # Show final state immediately
     _show_final_state()
     
@@ -512,10 +518,8 @@ func _show_final_state() -> void:
     """Show the final state of combat"""
     print("CombatAnimationPlayer: Showing final state")
     
-    # Reset all positions
-    for key in original_positions:
-        if combat_visuals.has(key) and combat_visuals[key].node and is_instance_valid(combat_visuals[key].node):
-            combat_visuals[key].node.global_position = original_positions[key]
+    # Don't restore positions - the board will be completely rebuilt after animations
+    # This prevents cards from moving to odd positions when the old cards are replaced
     
     # Apply final visual states
     for key in combat_visuals:
