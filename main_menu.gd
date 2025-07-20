@@ -57,14 +57,14 @@ func connect_signals():
 func _on_create_lobby_button_pressed():
     """Handle host game button press"""
     print("Host game selected")
-    # Go to multiplayer lobby as host
-    SceneManager.go_to_multiplayer_lobby()
+    # Go directly to multiplayer lobby host setup
+    SceneManager.go_to_multiplayer_lobby_host()
 
 func _on_join_lobby_button_pressed():
     """Handle join game button press"""
     print("Join game selected")
-    # Go to multiplayer lobby to join
-    SceneManager.go_to_multiplayer_lobby()
+    # Go directly to multiplayer lobby join setup
+    SceneManager.go_to_multiplayer_lobby_join()
 
 func _on_practice_button_pressed():
     """Handle practice mode button press"""
