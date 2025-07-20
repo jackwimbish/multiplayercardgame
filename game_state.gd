@@ -22,6 +22,12 @@ var shared_card_pool: Dictionary = {}
 var max_hand_size: int = 10
 var max_board_size: int = 7
 
+# Matchmaking
+var current_matchups: Dictionary = {}  # player_id -> opponent_id
+var ghost_player_id: int = -1  # Player fighting ghost this round (-1 if none)
+const GHOST_PLAYER_ID = 0  # Special ID for ghost opponent
+const MAX_PLAYERS = 4
+
 # Backwards compatibility - delegate to local player
 var current_gold: int:
     get: 
@@ -453,8 +459,17 @@ func _deal_initial_shops_for_all_players():
         
         for player_id in players.keys():
             var player_dict = players[player_id].to_dict()
-            print("GameState: Syncing player ", player_id, " with shop: ", player_dict.get("shop_cards", []))
             NetworkManager.sync_player_state.rpc(player_id, player_dict)
+        
+        # Generate and broadcast initial matchups
+        print("GameState: Generating initial matchups")
+        var active_players = []
+        for pid in players.keys():
+            active_players.append(pid)
+        
+        if active_players.size() >= 2:
+            var matchups = MatchmakingManager.generate_matchups(active_players)
+            NetworkManager.broadcast_matchups.rpc(matchups)
         
         # Also update local host display
         if NetworkManager.has_method("_update_local_player_display"):

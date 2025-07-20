@@ -48,6 +48,9 @@ var loss_screen: PanelContainer
 # Help overlay system
 var help_overlay: CanvasLayer
 var help_panel: PanelContainer
+
+# Matchmaking display
+var opponent_display_label: Label
 var help_content: RichTextLabel
 var help_scroll: ScrollContainer
 var help_toggle_button: Button
@@ -71,6 +74,7 @@ func setup_ui():
     create_flash_message_system()
     create_game_over_overlays()
     create_help_overlay()
+    create_opponent_display()
     populate_enemy_board_selector()
     # Note: Help button is created later by game_board after mode indicator
     connect_combat_ui_signals()
@@ -92,6 +96,11 @@ func connect_gamestate_signals():
     GameState.enemy_health_changed.connect(update_health_displays)
     GameState.game_over.connect(_on_game_over)
     GameState.game_mode_changed.connect(update_help_visibility)
+    GameState.game_mode_changed.connect(_on_game_mode_changed_for_opponent)
+    
+    # Connect to NetworkManager for matchup updates
+    if NetworkManager:
+        NetworkManager.matchups_assigned.connect(update_opponent_display)
 
 # === UI UPDATE FUNCTIONS ===
 
@@ -889,6 +898,48 @@ func connect_shop_ui_signals():
 func register_drag_drop_zones():
     """Register UI zones with the DragDropManager for drag-and-drop operations"""
     DragDropManager.register_ui_zones(player_hand, player_board, shop_area)
+
+# === MATCHMAKING DISPLAY FUNCTIONS ===
+
+func create_opponent_display() -> void:
+    """Create the next opponent display label"""
+    var top_ui = get_node_or_null("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container for opponent display")
+        return
+    
+    # Create the opponent display label
+    opponent_display_label = Label.new()
+    opponent_display_label.name = "OpponentDisplay"
+    opponent_display_label.text = "Next Opponent: Loading..."
+    apply_font_to_label(opponent_display_label, UI_FONT_SIZE_LARGE)
+    
+    # Position it after the turn label
+    if turn_label:
+        var turn_label_index = turn_label.get_index()
+        top_ui.add_child(opponent_display_label)
+        top_ui.move_child(opponent_display_label, turn_label_index + 1)
+    else:
+        top_ui.add_child(opponent_display_label)
+    
+    # Initially hidden, will be shown during shop phase
+    opponent_display_label.visible = false
+
+func update_opponent_display():
+    """Update the next opponent display"""
+    if not opponent_display_label:
+        return
+        
+    var local_player = GameState.get_local_player()
+    if local_player and local_player.current_opponent_id >= 0:
+        opponent_display_label.text = "Next Opponent: " + local_player.current_opponent_name
+        opponent_display_label.visible = (GameState.current_mode == GameState.GameMode.SHOP)
+    else:
+        opponent_display_label.visible = false
+
+func _on_game_mode_changed_for_opponent(new_mode: GameState.GameMode):
+    """Update opponent display visibility based on game mode"""
+    update_opponent_display()
 
 # === HELP OVERLAY FUNCTIONS ===
 

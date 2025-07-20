@@ -5,7 +5,7 @@ extends Node
 
 # Network configuration
 const DEFAULT_PORT = 9999
-const MAX_PLAYERS = 2  # For 1v1 games
+const MAX_PLAYERS = 4  # For up to 4 player games
 const CONNECTION_TIMEOUT = 10.0  # seconds
 
 # Network state
@@ -32,6 +32,7 @@ signal combat_started(combat_data: Dictionary)
 signal combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int)
 signal combat_results_received_v2(combat_log: Array, player1_id: int, player1_damage: int, player2_id: int, player2_damage: int, final_states: Dictionary)
 signal combat_results_received_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array)
+signal matchups_assigned()
 
 func _ready():
     print("NetworkManager initialized")
@@ -261,6 +262,16 @@ func sync_phase_change(new_phase: GameState.GameMode):
     # Emit signal so UI can update accordingly
     GameState.game_mode_changed.emit(new_phase)
 
+@rpc("authority", "call_local", "reliable")
+func broadcast_matchups(matchups: Dictionary) -> void:
+    """Broadcast matchup assignments to all clients"""
+    print("NetworkManager: Broadcasting matchups: ", matchups)
+    GameState.current_matchups = matchups
+    MatchmakingManager.apply_matchups(matchups)
+    
+    # Signal UI to update
+    matchups_assigned.emit()
+
 # === STATE SYNCHRONIZATION RPCS ===
 
 @rpc("authority", "call_local", "reliable")
@@ -428,6 +439,16 @@ func advance_turn_and_return_to_shop():
         # Sync card pool if it changed
         if result.get("pool_changed", false):
             sync_card_pool.rpc(GameState.shared_card_pool)
+        
+        # Generate and broadcast matchups for next round
+        var active_players = []
+        for player_id in GameState.players:
+            if GameState.players[player_id].player_health > 0:
+                active_players.append(player_id)
+        
+        if active_players.size() >= 2:
+            var matchups = MatchmakingManager.generate_matchups(active_players)
+            broadcast_matchups.rpc(matchups)
     
     # Then change phase to shop
     sync_phase_change.rpc(GameState.GameMode.SHOP)

@@ -58,37 +58,12 @@ func start_combat(enemy_board_name: String) -> void:
     current_enemy_board_name = enemy_board_name
 
 func start_multiplayer_combat() -> void:
-    """Start combat in multiplayer mode - uses real opponent boards"""
+    """Start combat in multiplayer mode - processes all matchups"""
     if not NetworkManager or not NetworkManager.is_host:
         print("Only host can start multiplayer combat")
         return
     
-    print("Starting multiplayer combat")
-    
-    # Get both players
-    var player1 = GameState.get_host_player()
-    var player2 = GameState.get_opponent_player()
-    
-    if not player1 or not player2:
-        print("Error: Could not find both players for combat")
-        return
-    
-    print("Player1 ID: ", player1.player_id, " Name: ", player1.player_name)
-    print("Player1 board_minions: ", player1.board_minions)
-    print("Player2 ID: ", player2.player_id, " Name: ", player2.player_name) 
-    print("Player2 board_minions: ", player2.board_minions)
-    
-    # Check if either player is eliminated - auto-win for the living player
-    var player1_eliminated = GameState.is_player_eliminated(player1.player_id)
-    var player2_eliminated = GameState.is_player_eliminated(player2.player_id)
-    
-    if player1_eliminated or player2_eliminated:
-        print("Auto-win detected - one player is eliminated")
-        _handle_auto_win(player1, player2, player1_eliminated, player2_eliminated)
-        return
-    
-    # Generate deterministic seed for combat
-    var combat_seed = Time.get_ticks_msec()
+    print("Starting multiplayer combat with matchups")
     
     # Prepare shop state for combat phase (save frozen cards)
     if main_layout:
@@ -96,20 +71,51 @@ func start_multiplayer_combat() -> void:
         if game_board and game_board.has_method("prepare_shop_for_combat"):
             game_board.prepare_shop_for_combat()
     
-    # Change phase to combat
+    # Change phase to combat first
     NetworkManager.change_game_phase(GameState.GameMode.COMBAT)
     
-    # Broadcast combat start with both player boards
-    NetworkManager.sync_combat_start.rpc(
-        player1.player_id,
-        player1.board_minions.duplicate(),
-        player2.player_id,
-        player2.board_minions.duplicate(),
-        combat_seed
-    )
+    # Process all unique matchups
+    var processed_pairs = {}
+    var combat_seeds = {}
     
-    # Don't call switch_to_combat_mode here - let the phase change handle it
-    # The combat display will be handled by _on_multiplayer_combat_started
+    for player_id in GameState.current_matchups:
+        var opponent_id = GameState.current_matchups[player_id]
+        
+        # Create a unique key for this pairing
+        var pair_key = str(mini(player_id, opponent_id)) + "_" + str(maxi(player_id, opponent_id))
+        
+        # Skip if we've already processed this pairing
+        if pair_key in processed_pairs:
+            continue
+        
+        processed_pairs[pair_key] = true
+        
+        # Get both players
+        var player1 = GameState.players.get(player_id)
+        var player2 = MatchmakingManager.get_opponent_for_player(player_id)
+        
+        if not player1 or not player2:
+            print("Error: Could not find players for matchup ", player_id, " vs ", opponent_id)
+            continue
+        
+        print("Processing combat: ", player1.player_name, " (", player_id, ") vs ", player2.player_name, " (", opponent_id, ")")
+        
+        # Check for eliminated players
+        var player1_eliminated = GameState.is_player_eliminated(player1.player_id)
+        var player2_eliminated = GameState.is_player_eliminated(player2.player_id) and opponent_id != GameState.GHOST_PLAYER_ID
+        
+        # Generate deterministic seed for this combat
+        var combat_seed = Time.get_ticks_msec() + player_id + opponent_id
+        combat_seeds[pair_key] = combat_seed
+        
+        # Broadcast combat start for this pairing
+        NetworkManager.sync_combat_start.rpc(
+            player1.player_id,
+            player1.board_minions.duplicate(),
+            player2.player_id,
+            player2.board_minions.duplicate(),
+            combat_seed
+        )
 
 func _handle_auto_win(player1: PlayerState, player2: PlayerState, player1_eliminated: bool, player2_eliminated: bool) -> void:
     """Handle auto-win when one player is eliminated"""
@@ -1072,16 +1078,24 @@ func _on_multiplayer_combat_started(combat_data: Dictionary) -> void:
     var player2_board = combat_data.get("player2_board", [])
     var random_seed = combat_data.get("random_seed", 0)
     
-    # Display opponent's board
-    _display_multiplayer_opponent_board(player1_id, player1_board, player2_id, player2_board)
+    # Check if the local player is involved in this combat
+    var local_player_id = GameState.local_player_id
+    var is_local_combat = (player1_id == local_player_id or player2_id == local_player_id)
+    
+    if is_local_combat:
+        print("Local player is involved in this combat")
+        # Display opponent's board
+        _display_multiplayer_opponent_board(player1_id, player1_board, player2_id, player2_board)
+    else:
+        print("Local player not involved in this combat - skipping display")
     
     # Set up RNG with the seed
     var rng = RandomNumberGenerator.new()
     rng.seed = random_seed
     
-    # Run combat simulation if we're the host
+    # Run combat simulation if we're the host (for all combats)
     if NetworkManager.is_host:
-        print("Host running combat simulation")
+        print("Host running combat simulation for ", player1_id, " vs ", player2_id)
         _run_multiplayer_combat_simulation(player1_id, player1_board, player2_id, player2_board, rng)
 
 func _run_multiplayer_combat_simulation(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array, rng: RandomNumberGenerator) -> void:
@@ -1455,7 +1469,17 @@ func _on_combat_results_received_v2(combat_log: Array, player1_id: int, player1_
 
 func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array) -> void:
     """Handle combat results with animations"""
-    print("Combat results v3 received - Starting combat animations")
+    print("Combat results v3 received - P1: ", player1_id, " vs P2: ", player2_id)
+    
+    # Check if the local player is involved in this combat
+    var local_player_id = GameState.local_player_id
+    var is_local_combat = (player1_id == local_player_id or player2_id == local_player_id)
+    
+    if not is_local_combat:
+        print("Local player not involved in this combat result - skipping")
+        return
+    
+    print("Starting combat animations for local player")
     print("Player1 final: ", player1_final)
     print("Player2 final: ", player2_final)
     print("Combat log size: ", combat_log.size())
