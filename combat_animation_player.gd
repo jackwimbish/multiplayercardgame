@@ -53,7 +53,15 @@ func setup(player_board: Control, enemy_board: Control, ui_mgr: UIManager):
 func play_combat_animation(log: Array, player_minions: Array, enemy_minions: Array) -> void:
     """Start playing combat animations based on the combat log"""
     if is_playing:
-        return
+        print("CombatAnimationPlayer: WARNING - Animation already in progress, resetting state")
+        # Force reset if somehow stuck in playing state
+        is_playing = false
+        is_skipping = false
+        # Kill any lingering tweens
+        for tween in active_tweens:
+            if tween and is_instance_valid(tween):
+                tween.kill()
+        active_tweens.clear()
     
     print("CombatAnimationPlayer: Starting animation with ", log.size(), " actions")
     print("  Player minions: ", player_minions.size(), " Enemy minions: ", enemy_minions.size())
@@ -91,6 +99,9 @@ func skip_combat() -> void:
     
     # Show final state immediately
     _show_final_state()
+    
+    # Reset playing state
+    is_playing = false
 
 func _setup_combat_visuals(player_minions: Array, enemy_minions: Array) -> void:
     """Setup visual tracking for all minions in combat"""

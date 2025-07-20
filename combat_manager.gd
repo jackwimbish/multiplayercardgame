@@ -1400,6 +1400,9 @@ func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_
     print("Player2 final: ", player2_final)
     print("Combat log size: ", combat_log.size())
     
+    # Reset skip flag in case it was left on from previous combat
+    skip_animations = false
+    
     # Display the combat log text first
     _show_multiplayer_combat_log(combat_log)
     
@@ -1462,6 +1465,8 @@ func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_
     else:
         # Skip directly to final state
         _on_combat_animations_complete()
+        # Reset skip flag for next combat
+        skip_animations = false
         
     # Update health displays will happen after animations complete
     ui_manager.update_health_displays()
