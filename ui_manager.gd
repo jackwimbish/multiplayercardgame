@@ -45,6 +45,14 @@ var game_over_overlay: CanvasLayer
 var victory_screen: PanelContainer
 var loss_screen: PanelContainer
 
+# Help overlay system
+var help_overlay: CanvasLayer
+var help_panel: PanelContainer
+var help_content: RichTextLabel
+var help_scroll: ScrollContainer
+var help_toggle_button: Button
+var is_help_visible: bool = false
+
 # Game limits for UI display
 var max_hand_size: int = 10
 var max_board_size: int = 7
@@ -54,6 +62,7 @@ func _ready():
     setup_ui()
     connect_gamestate_signals()
     register_drag_drop_zones()
+    set_process_unhandled_input(true)
 
 func setup_ui():
     """Initialize all UI elements and styling"""
@@ -61,6 +70,7 @@ func setup_ui():
     create_combat_ui()
     create_flash_message_system()
     create_game_over_overlays()
+    create_help_overlay()
     populate_enemy_board_selector()
     connect_combat_ui_signals()
     connect_shop_ui_signals()
@@ -80,6 +90,7 @@ func connect_gamestate_signals():
     GameState.player_health_changed.connect(update_health_displays)
     GameState.enemy_health_changed.connect(update_health_displays)
     GameState.game_over.connect(_on_game_over)
+    GameState.game_mode_changed.connect(update_help_visibility)
 
 # === UI UPDATE FUNCTIONS ===
 
@@ -575,6 +586,79 @@ func create_flash_message_system() -> void:
     
     print("Toast-style flash message system created")
 
+func create_help_overlay() -> void:
+    """Create the help overlay system"""
+    # Create help toggle button first
+    _create_help_toggle_button()
+    
+    # Create the overlay layer
+    help_overlay = CanvasLayer.new()
+    help_overlay.name = "HelpOverlay"
+    help_overlay.layer = 5  # Above game but below game over screens
+    add_child(help_overlay)
+    
+    # Create semi-transparent panel covering right side
+    help_panel = PanelContainer.new()
+    help_panel.name = "HelpPanel"
+    
+    # Position on right side of screen
+    help_panel.anchor_left = 0.5  # Start from middle of screen
+    help_panel.anchor_top = 0.0
+    help_panel.anchor_right = 1.0
+    help_panel.anchor_bottom = 1.0
+    help_panel.offset_left = 0
+    help_panel.offset_top = 0
+    help_panel.offset_right = 0
+    help_panel.offset_bottom = 0
+    
+    # Semi-transparent dark background
+    var style_box = StyleBoxFlat.new()
+    style_box.bg_color = Color(0.1, 0.1, 0.1, 0.85)  # Dark semi-transparent
+    style_box.border_width_left = 2
+    style_box.border_width_right = 2
+    style_box.border_width_top = 2
+    style_box.border_width_bottom = 2
+    style_box.border_color = Color(0.3, 0.3, 0.3, 0.8)
+    style_box.corner_radius_top_left = 5
+    style_box.corner_radius_top_right = 5
+    style_box.corner_radius_bottom_left = 5
+    style_box.corner_radius_bottom_right = 5
+    help_panel.add_theme_stylebox_override("panel", style_box)
+    
+    # Create scroll container
+    help_scroll = ScrollContainer.new()
+    help_scroll.name = "HelpScroll"
+    help_panel.add_child(help_scroll)
+    
+    # Create content label
+    help_content = RichTextLabel.new()
+    help_content.name = "HelpContent"
+    help_content.bbcode_enabled = true
+    help_content.fit_content = true
+    help_content.scroll_active = false  # Let ScrollContainer handle scrolling
+    help_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    help_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    help_content.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_SMALL)
+    help_content.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_MEDIUM)
+    help_content.add_theme_color_override("default_color", Color.WHITE)
+    help_content.text = _get_help_text()
+    
+    # Add padding
+    var margin_container = MarginContainer.new()
+    margin_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    margin_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+    margin_container.add_theme_constant_override("margin_left", 20)
+    margin_container.add_theme_constant_override("margin_right", 20)
+    margin_container.add_theme_constant_override("margin_top", 20)
+    margin_container.add_theme_constant_override("margin_bottom", 20)
+    margin_container.add_child(help_content)
+    help_scroll.add_child(margin_container)
+    
+    help_overlay.add_child(help_panel)
+    help_panel.visible = false
+    
+    print("Help overlay created")
+
 func create_game_over_overlays() -> void:
     """Create victory and loss screen overlays"""
     # Create the overlay layer
@@ -757,10 +841,10 @@ func _create_toast_style_background() -> void:
     style_box.corner_radius_bottom_right = 12
     
     # Padding for text breathing room
-    style_box.content_margin_left = 20
-    style_box.content_margin_right = 20
-    style_box.content_margin_top = 12
-    style_box.content_margin_bottom = 12
+    style_box.set_content_margin(SIDE_LEFT, 20)
+    style_box.set_content_margin(SIDE_RIGHT, 20)
+    style_box.set_content_margin(SIDE_TOP, 12)
+    style_box.set_content_margin(SIDE_BOTTOM, 12)
     
     # Shadow effect
     style_box.shadow_color = Color(0, 0, 0, 0.5)  # Semi-transparent black shadow
@@ -804,4 +888,115 @@ func connect_shop_ui_signals():
 
 func register_drag_drop_zones():
     """Register UI zones with the DragDropManager for drag-and-drop operations"""
-    DragDropManager.register_ui_zones(player_hand, player_board, shop_area) 
+    DragDropManager.register_ui_zones(player_hand, player_board, shop_area)
+
+# === HELP OVERLAY FUNCTIONS ===
+
+func _create_help_toggle_button() -> void:
+    """Create the help toggle button in the top-right corner"""
+    help_toggle_button = Button.new()
+    help_toggle_button.name = "HelpToggleButton"
+    help_toggle_button.text = "How to Play"
+    help_toggle_button.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
+    
+    # Style the button
+    help_toggle_button.flat = false
+    help_toggle_button.custom_minimum_size = Vector2(120, 40)
+    
+    # Position in top-right corner using anchors
+    help_toggle_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+    help_toggle_button.anchor_left = 1.0
+    help_toggle_button.anchor_top = 0.0
+    help_toggle_button.anchor_right = 1.0
+    help_toggle_button.anchor_bottom = 0.0
+    help_toggle_button.offset_left = -150  # Offset from right edge
+    help_toggle_button.offset_top = 10
+    help_toggle_button.offset_right = -10
+    help_toggle_button.offset_bottom = 50
+    
+    # Add to the UI
+    add_child(help_toggle_button)
+    
+    # Connect signal
+    help_toggle_button.pressed.connect(_on_help_toggle_pressed)
+    
+    # Initially visible only during shop phase
+    help_toggle_button.visible = GameState.current_mode == GameState.GameMode.SHOP
+
+func _on_help_toggle_pressed() -> void:
+    """Toggle the help overlay visibility"""
+    is_help_visible = !is_help_visible
+    
+    if help_panel:
+        help_panel.visible = is_help_visible
+        
+    # Update button text
+    if help_toggle_button:
+        help_toggle_button.text = "Close Help Window" if is_help_visible else "How to Play"
+
+func _get_help_text() -> String:
+    """Return the help content as BBCode formatted text"""
+    return """[b][u]How to Play OpenBattlefields[/u][/b]
+
+[b]Game Basics:[/b]
+OpenBattlefields is an auto-battler where you build a team of minions to fight against opponents. The last player standing wins!
+
+[b]Turn Structure:[/b]
+Each turn consists of two phases:
+• [b]Shop Phase:[/b] Buy minions, arrange your board, and prepare for combat
+• [b]Combat Phase:[/b] Your minions automatically battle an opponent
+
+[b]Shopping:[/b]
+• Minions cost [color=yellow]3 gold[/color] each
+• Drag a minion from the shop to your hand to buy it
+• Drag a minion from your hand to the board to play it
+• You can have up to 10 cards in hand and 7 minions on board
+• [b]Refresh Shop:[/b] Get new minions for [color=yellow]1 gold[/color]
+• [b]Freeze Shop:[/b] Keep current minions for next turn (free)
+• [b]Upgrade Shop:[/b] Unlock higher tier minions (cost decreases each turn)
+
+[b]Economy:[/b]
+• You start with [color=yellow]3 gold[/color]
+• Gold increases by 1 each turn (max [color=yellow]10 gold[/color])
+• Selling minions gives you [color=yellow]1 gold[/color] back
+
+[b]Combat:[/b]
+• Minions attack from left to right
+• Each minion attacks a random enemy minion
+• Both minions deal damage simultaneously
+• Combat continues until one side has no minions left
+• The loser takes damage to their health
+• When your health reaches 0, you're eliminated
+
+[b]Controls:[/b]
+• [b]Drag & Drop:[/b] Move cards between shop, hand, and board
+• [b]Right Click:[/b] Sell minions from board or hand
+• [b]H Key:[/b] Toggle this help window
+
+[b]Tips:[/b]
+• Position matters! Minions attack from left to right
+• Save gold to upgrade your shop tier for stronger minions
+• Build synergies between minions for powerful combos
+• Watch your opponent's board to counter their strategy"""
+
+func update_help_visibility(mode: GameState.GameMode) -> void:
+    """Update help button visibility based on game mode"""
+    if help_toggle_button:
+        # Only show during shop mode
+        help_toggle_button.visible = (mode == GameState.GameMode.SHOP)
+        
+        # Hide overlay if button is hidden
+        if not help_toggle_button.visible and is_help_visible:
+            is_help_visible = false
+            if help_panel:
+                help_panel.visible = false
+            help_toggle_button.text = "How to Play"
+
+func _unhandled_input(event: InputEvent) -> void:
+    """Handle keyboard input for help overlay"""
+    if event is InputEventKey and event.pressed:
+        if event.keycode == KEY_H:
+            # Only toggle if button is visible (shop phase)
+            if help_toggle_button and help_toggle_button.visible:
+                _on_help_toggle_pressed()
+                get_viewport().set_input_as_handled() 
