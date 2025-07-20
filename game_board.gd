@@ -483,8 +483,8 @@ func _handle_board_reorder_drop(card):
             {"board_minions": new_board_order}
         )
         
-        # Return card to original position (will be updated when state syncs)
-        _return_card_to_board(card)
+        # Remove the dragged card - it will be recreated when state syncs
+        card.queue_free()
         
         # Show subtle feedback
         ui_manager.show_flash_message("Reordering...", 0.3)
