@@ -317,6 +317,10 @@ func _animate_attack(action: Dictionary) -> void:
     
     print("  After attack - Attacker health: ", attacker.current_health, " Defender health: ", defender.current_health)
     
+    # Update health displays after damage is applied
+    _update_minion_health_display(attacker, damage_to_attacker)
+    _update_minion_health_display(defender, damage_to_defender)
+    
     # Check for deaths
     var has_deaths = false
     if attacker.current_health <= 0 and not attacker.is_dead:
@@ -525,13 +529,21 @@ func _show_final_state() -> void:
     for key in combat_visuals:
         var visual = combat_visuals[key]
         if visual.node and is_instance_valid(visual.node):
-            if visual.is_dead:
-                print("  Minion ", key, " is dead - applying death visuals")
-                visual.node.modulate = Color(0.5, 0.5, 0.5, 0.7)
-                var stats_label = visual.node.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
-                if stats_label:
-                    stats_label.text = str(visual.attack) + "/0"
+            var stats_label = visual.node.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+            if stats_label:
+                # Update stats text
+                stats_label.text = str(visual.attack) + "/" + str(visual.current_health)
+                
+                if visual.is_dead:
+                    print("  Minion ", key, " is dead - applying death visuals")
+                    visual.node.modulate = Color(0.5, 0.5, 0.5, 0.7)
                     stats_label.add_theme_color_override("font_color", Color.RED)
+                elif visual.current_health < visual.max_health:
+                    # Damaged but alive - orange color
+                    stats_label.add_theme_color_override("font_color", Color.ORANGE)
+                else:
+                    # Full health - normal color
+                    stats_label.remove_theme_color_override("font_color")
 
 func _on_combat_animation_complete() -> void:
     """Called when all combat animations are complete"""
@@ -547,6 +559,34 @@ func _on_combat_animation_complete() -> void:
         var combat_manager = ui_manager.combat_ui_container.get_parent()
         if combat_manager and combat_manager.has_method("_on_combat_animations_complete"):
             combat_manager._on_combat_animations_complete()
+
+func _update_minion_health_display(minion: Dictionary, damage_taken: int) -> void:
+    """Update minion's health display after taking damage"""
+    if not minion.node or not is_instance_valid(minion.node):
+        return
+    
+    var stats_label = minion.node.get_node_or_null("VBoxContainer/BottomRow/StatsLabel")
+    if not stats_label:
+        return
+    
+    # Update the displayed health
+    var current_health = minion.current_health
+    var attack = minion.attack
+    
+    # Update stats text
+    stats_label.text = str(attack) + "/" + str(current_health)
+    
+    # Set color based on health status
+    if current_health <= 0:
+        # Dead - red color (will be handled by death animation)
+        # Don't set color here as death animation will handle it
+        pass
+    elif current_health < minion.max_health:
+        # Damaged - orange color
+        stats_label.add_theme_color_override("font_color", Color.ORANGE)
+    else:
+        # Full health - normal color (remove override)
+        stats_label.remove_theme_color_override("font_color")
 
 func _restore_original_stats() -> void:
     """Restore original stats text to all player minions"""
