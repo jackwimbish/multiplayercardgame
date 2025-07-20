@@ -893,29 +893,42 @@ func register_drag_drop_zones():
 # === HELP OVERLAY FUNCTIONS ===
 
 func _create_help_toggle_button() -> void:
-    """Create the help toggle button in the top-right corner"""
+    """Create the help toggle button to the left of the mode indicator"""
+    # Get the TopUI container
+    var top_ui = get_node_or_null("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container for help button")
+        return
+    
+    # Create the help button
     help_toggle_button = Button.new()
     help_toggle_button.name = "HelpToggleButton"
     help_toggle_button.text = "How to Play"
     help_toggle_button.add_theme_font_size_override("font_size", UI_FONT_SIZE_MEDIUM)
     
-    # Style the button
+    # Style the button to match other TopUI buttons
     help_toggle_button.flat = false
     help_toggle_button.custom_minimum_size = Vector2(120, 40)
     
-    # Position in top-right corner using anchors
-    help_toggle_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-    help_toggle_button.anchor_left = 1.0
-    help_toggle_button.anchor_top = 0.0
-    help_toggle_button.anchor_right = 1.0
-    help_toggle_button.anchor_bottom = 0.0
-    help_toggle_button.offset_left = -150  # Offset from right edge
-    help_toggle_button.offset_top = 10
-    help_toggle_button.offset_right = -10
-    help_toggle_button.offset_bottom = 50
+    # Add to TopUI container
+    top_ui.add_child(help_toggle_button)
     
-    # Add to the UI
-    add_child(help_toggle_button)
+    # Position after the mode indicator (which is at index 0)
+    # So help button will be at index 1
+    var mode_indicator_index = 0
+    for i in range(top_ui.get_child_count()):
+        if top_ui.get_child(i).name == "ModeIndicator":
+            mode_indicator_index = i
+            break
+    
+    # Move help button to position after mode indicator
+    top_ui.move_child(help_toggle_button, mode_indicator_index + 1)
+    
+    # Add a separator after the help button for margin
+    var separator = VSeparator.new()
+    separator.custom_minimum_size.x = 20  # Add 20 pixels of spacing to the right
+    top_ui.add_child(separator)
+    top_ui.move_child(separator, mode_indicator_index + 2)
     
     # Connect signal
     help_toggle_button.pressed.connect(_on_help_toggle_pressed)
@@ -950,6 +963,7 @@ Each turn consists of two phases:
 • Minions cost [color=yellow]3 gold[/color] each
 • Drag a minion from the shop to your hand to buy it
 • Drag a minion from your hand to the board to play it
+• Drag a minion from your board to the shop to sell it for [color=yellow]1 gold[/color]
 • You can have up to 10 cards in hand and 7 minions on board
 • [b]Refresh Shop:[/b] Get new minions for [color=yellow]1 gold[/color]
 • [b]Freeze Shop:[/b] Keep current minions for next turn (free)
@@ -970,7 +984,7 @@ Each turn consists of two phases:
 
 [b]Controls:[/b]
 • [b]Drag & Drop:[/b] Move cards between shop, hand, and board
-• [b]Right Click:[/b] Sell minions from board or hand
+• [b]Right Click:[/b] Cancel pending action (e.g., battlecry targeting)
 • [b]H Key:[/b] Toggle this help window
 
 [b]Tips:[/b]
