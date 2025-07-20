@@ -33,6 +33,10 @@ var frozen_card_ids: Array = []  # Array of card IDs frozen for next turn
 var is_ready_for_next_phase: bool = false
 var has_ended_turn: bool = false
 
+# Matchmaking
+var current_opponent_id: int = -1  # -1 for no opponent, 0 for ghost
+var current_opponent_name: String = ""
+
 # Network timing
 var last_ping_time: float = 0.0
 var ping_ms: int = 0
@@ -102,7 +106,9 @@ func to_dict() -> Dictionary:
         "frozen_card_ids": frozen_card_ids,
         "is_ready_for_next_phase": is_ready_for_next_phase,
         "has_ended_turn": has_ended_turn,
-        "ping_ms": ping_ms
+        "ping_ms": ping_ms,
+        "current_opponent_id": current_opponent_id,
+        "current_opponent_name": current_opponent_name
     }
 
 func from_dict(data: Dictionary):
@@ -130,6 +136,8 @@ func from_dict(data: Dictionary):
     is_ready_for_next_phase = data.get("is_ready_for_next_phase", false)
     has_ended_turn = data.get("has_ended_turn", false)
     ping_ms = data.get("ping_ms", 0)
+    current_opponent_id = data.get("current_opponent_id", -1)
+    current_opponent_name = data.get("current_opponent_name", "")
     
     # In SSOT architecture, NetworkManager handles all display updates
     # No signals emitted here

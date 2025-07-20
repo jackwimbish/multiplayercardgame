@@ -48,6 +48,13 @@ var loss_screen: PanelContainer
 # Help overlay system
 var help_overlay: CanvasLayer
 var help_panel: PanelContainer
+
+# Matchmaking display
+var opponent_display_label: Label
+
+# Host game continuation
+var continue_game_button: Button
+var host_continue_to_shop: bool = true  # Track which phase host should advance to
 var help_content: RichTextLabel
 var help_scroll: ScrollContainer
 var help_toggle_button: Button
@@ -71,6 +78,7 @@ func setup_ui():
     create_flash_message_system()
     create_game_over_overlays()
     create_help_overlay()
+    create_opponent_display()
     populate_enemy_board_selector()
     # Note: Help button is created later by game_board after mode indicator
     connect_combat_ui_signals()
@@ -92,6 +100,11 @@ func connect_gamestate_signals():
     GameState.enemy_health_changed.connect(update_health_displays)
     GameState.game_over.connect(_on_game_over)
     GameState.game_mode_changed.connect(update_help_visibility)
+    GameState.game_mode_changed.connect(_on_game_mode_changed_for_opponent)
+    
+    # Connect to NetworkManager for matchup updates
+    if NetworkManager:
+        NetworkManager.matchups_assigned.connect(update_opponent_display)
 
 # === UI UPDATE FUNCTIONS ===
 
@@ -793,12 +806,51 @@ func _create_loss_screen() -> PanelContainer:
     menu_button.pressed.connect(_on_return_to_menu_pressed)
     vbox.add_child(menu_button)
     
+    # Add spacing
+    var spacer3 = Control.new()
+    spacer3.custom_minimum_size.y = 20
+    vbox.add_child(spacer3)
+    
+    # Continue game button (for eliminated hosts)
+    continue_game_button = Button.new()
+    continue_game_button.name = "ContinueGameButton"
+    continue_game_button.text = "Continue Game"
+    continue_game_button.custom_minimum_size = Vector2(200, 50)
+    apply_font_to_button(continue_game_button, UI_FONT_SIZE_MEDIUM)
+    continue_game_button.pressed.connect(_on_continue_game_pressed)
+    continue_game_button.visible = false  # Hidden by default
+    vbox.add_child(continue_game_button)
+    
     return screen
 
 func _on_return_to_menu_pressed() -> void:
     """Handle return to menu button press"""
     print("Return to menu pressed from game over screen")
     GameModeManager.request_return_to_menu()
+
+func _on_continue_game_pressed() -> void:
+    """Handle continue game button press for eliminated hosts"""
+    print("Continue game pressed by eliminated host")
+    
+    # Hide the loss screen
+    if loss_screen:
+        loss_screen.visible = false
+    
+    # Call appropriate game board function based on current phase
+    if host_continue_to_shop:
+        # Return all players to shop
+        print("Host continuing: returning all players to shop")
+        get_parent()._on_return_to_shop_button_pressed()
+        host_continue_to_shop = false  # Next time will be combat
+    else:
+        # Start combat for remaining players
+        print("Host continuing: starting combat for remaining players")
+        get_parent()._on_start_combat_button_pressed()
+        host_continue_to_shop = true  # Next time will be shop
+    
+    # Update button text for next action
+    if continue_game_button:
+        continue_game_button.text = "Return to Shop" if host_continue_to_shop else "Start Combat"
 
 func show_victory_screen(placement: int = 1) -> void:
     """Show the victory screen with placement"""
@@ -815,6 +867,16 @@ func show_loss_screen(placement: int) -> void:
         var placement_label = loss_screen.find_child("PlacementLabel", true, false)
         if placement_label:
             placement_label.text = _get_placement_text(placement)
+        
+        # Show Continue Game button for eliminated hosts
+        if GameModeManager.is_in_multiplayer_session() and GameState.is_host():
+            if continue_game_button:
+                continue_game_button.visible = true
+                # Eliminated players always see defeat screen when returning to shop after combat
+                # So the next action is to start combat for remaining players
+                continue_game_button.text = "Start Combat"
+                host_continue_to_shop = false
+        
         loss_screen.visible = true
         print("Showing loss screen - ", _get_placement_text(placement))
 
@@ -889,6 +951,48 @@ func connect_shop_ui_signals():
 func register_drag_drop_zones():
     """Register UI zones with the DragDropManager for drag-and-drop operations"""
     DragDropManager.register_ui_zones(player_hand, player_board, shop_area)
+
+# === MATCHMAKING DISPLAY FUNCTIONS ===
+
+func create_opponent_display() -> void:
+    """Create the next opponent display label"""
+    var top_ui = get_node_or_null("TopUI")
+    if not top_ui:
+        print("Could not find TopUI container for opponent display")
+        return
+    
+    # Create the opponent display label
+    opponent_display_label = Label.new()
+    opponent_display_label.name = "OpponentDisplay"
+    opponent_display_label.text = "Next Opponent: Loading..."
+    apply_font_to_label(opponent_display_label, UI_FONT_SIZE_LARGE)
+    
+    # Position it after the turn label
+    if turn_label:
+        var turn_label_index = turn_label.get_index()
+        top_ui.add_child(opponent_display_label)
+        top_ui.move_child(opponent_display_label, turn_label_index + 1)
+    else:
+        top_ui.add_child(opponent_display_label)
+    
+    # Initially hidden, will be shown during shop phase
+    opponent_display_label.visible = false
+
+func update_opponent_display():
+    """Update the next opponent display"""
+    if not opponent_display_label:
+        return
+        
+    var local_player = GameState.get_local_player()
+    if local_player and local_player.current_opponent_id >= 0:
+        opponent_display_label.text = "Next Opponent: " + local_player.current_opponent_name
+        opponent_display_label.visible = (GameState.current_mode == GameState.GameMode.SHOP)
+    else:
+        opponent_display_label.visible = false
+
+func _on_game_mode_changed_for_opponent(new_mode: GameState.GameMode):
+    """Update opponent display visibility based on game mode"""
+    update_opponent_display()
 
 # === HELP OVERLAY FUNCTIONS ===
 
