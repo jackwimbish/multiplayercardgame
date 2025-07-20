@@ -30,6 +30,11 @@ func setup_ui():
         player_name_input.text = SettingsManager.get_player_name()
         player_name_input.text_changed.connect(_on_player_name_changed)
         player_name_input.text_submitted.connect(_on_player_name_submitted)
+    
+    # Disable practice button for now
+    if practice_button:
+        practice_button.disabled = true
+        practice_button.tooltip_text = "Practice mode coming soon!"
 
 func setup_animations():
     """Setup visual animations and effects"""
@@ -88,9 +93,8 @@ func _on_player_name_changed(new_text: String):
 
 func _on_player_name_submitted(text: String):
     """Handle when player presses Enter in name field"""
-    # Automatically start practice mode when name is submitted
-    if practice_button and not practice_button.disabled:
-        _on_practice_button_pressed()
+    # Since practice mode is disabled, do nothing for now
+    pass
 
 
 # === UTILITY FUNCTIONS ===
@@ -103,6 +107,5 @@ func _input(event):
         # ESC key exits the game
         _on_quit_button_pressed()
     elif event.is_action_pressed("ui_accept"):
-        # Enter key selects practice mode (default)
-        if practice_button and not practice_button.disabled:
-            _on_practice_button_pressed() 
+        # Enter key does nothing since practice mode is disabled
+        pass 
