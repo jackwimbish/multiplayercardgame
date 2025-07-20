@@ -24,6 +24,7 @@ GameModeManager="*res://game_mode_manager.gd"
 SceneManager="*res://scene_manager.gd"
 SettingsManager="*res://settings_manager.gd"
 NetworkManager="*res://network_manager.gd"
+HostGameLogic="*res://host_game_logic.gd"
 
 [display]
 
@@ -34,3 +35,4 @@ window/size/viewport_height=1400
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+textures/vram_compression/import_etc2_astc=true

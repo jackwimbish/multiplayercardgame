@@ -13,6 +13,9 @@ var is_transitioning: bool = false
 var fade_overlay: ColorRect
 var transition_tween: Tween
 
+# Parameters to pass to next scene
+var next_scene_params: Dictionary = {}
+
 # Transition settings
 const FADE_DURATION = 0.3
 const FADE_COLOR = Color.BLACK
@@ -106,6 +109,16 @@ func go_to_multiplayer_lobby():
     """Transition to multiplayer lobby"""
     transition_to(MULTIPLAYER_LOBBY_SCENE)
 
+func go_to_multiplayer_lobby_host():
+    """Transition to multiplayer lobby in host mode"""
+    next_scene_params = {"mode": "host"}
+    transition_to(MULTIPLAYER_LOBBY_SCENE)
+
+func go_to_multiplayer_lobby_join():
+    """Transition to multiplayer lobby in join mode"""
+    next_scene_params = {"mode": "join"}
+    transition_to(MULTIPLAYER_LOBBY_SCENE)
+
 # === SIGNAL HANDLERS ===
 
 func _on_return_to_menu_requested():
@@ -127,4 +140,10 @@ func get_current_scene_name() -> String:
 func is_in_game() -> bool:
     """Check if currently in a game scene (not menu)"""
     var scene_name = get_current_scene_name()
-    return scene_name == "game_board" or scene_name == "multiplayer_lobby" 
+    return scene_name == "game_board" or scene_name == "multiplayer_lobby"
+
+func get_scene_params() -> Dictionary:
+    """Get and clear the scene parameters"""
+    var params = next_scene_params.duplicate()
+    next_scene_params.clear()
+    return params 

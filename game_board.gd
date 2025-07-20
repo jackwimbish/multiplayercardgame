@@ -1,6 +1,7 @@
 extends Control
 
 const DEFAULT_PORT = 9999
+# Preload manager scripts
 const ShopManagerScript = preload("res://shop_manager.gd")
 const CombatManagerScript = preload("res://combat_manager.gd")
 # dragged_card removed - now tracked by DragDropManager
@@ -14,8 +15,18 @@ signal game_over(winner: String)
 @onready var ui_manager = $MainLayout
 
 # Manager instances
-var shop_manager: ShopManagerScript
-var combat_manager: CombatManagerScript
+var shop_manager
+var combat_manager
+
+# Battlecry selection state
+var is_selecting_battlecry_target: bool = false
+var battlecry_card_being_played: Node = null
+var battlecry_card_id: String = ""
+var battlecry_board_position: int = -1
+
+# Victory/defeat overlay state - show after combat animations
+var pending_defeat_placement: int = -1
+var pending_victory: bool = false
 
 # Constants are now in GameState singleton
 
@@ -28,6 +39,9 @@ func _ready():
     # Initialize GameState for the current game mode
     GameState.initialize_game_state()
     
+    # Enable input for battlecry handling
+    set_process_unhandled_input(true)
+    
     # Setup game mode specific features
     setup_game_mode()
     
@@ -36,6 +50,7 @@ func _ready():
     GameState.game_over.connect(_on_game_over)
     GameState.player_eliminated.connect(_on_player_eliminated)
     GameState.player_victorious.connect(_on_player_victorious)
+    GameState.game_mode_changed.connect(_on_game_mode_changed)
     
     # Initialize ShopManager
     shop_manager = ShopManagerScript.new(ui_manager.get_shop_container(), ui_manager)
@@ -51,25 +66,25 @@ func _ready():
     DragDropManager.card_drag_ended.connect(_on_card_drag_ended)
     
     # Initialize game systems
-    shop_manager.refresh_shop()
+    # In SSOT architecture, shops are dealt by host after initialization
+    # No local shop refresh needed
     
     # Connect shop manager to player signals for multiplayer updates
     _connect_shop_to_player_signals()
 
 func _connect_shop_to_player_signals():
     """Connect shop manager to player state signals"""
-    if GameModeManager.is_in_multiplayer_session():
-        var local_player = GameState.get_local_player()
-        if local_player:
-            local_player.shop_cards_changed.connect(shop_manager._on_player_shop_changed)
-            # Create wrapper for gold_changed signal (PlayerState emits 1 param, UI expects 2)
-            local_player.gold_changed.connect(func(new_gold): ui_manager._on_gold_changed(new_gold, GameState.GLOBAL_GOLD_MAX))
-            print("Connected shop manager to player shop_cards_changed signal")
-            print("Connected UI manager to player gold_changed signal")
+    # In SSOT architecture, no signal connections needed
+    # All updates come through NetworkManager._update_local_player_display()
+    pass
 
 func setup_game_mode():
     """Setup game mode specific features"""
     print("Setting up game for mode: ", GameModeManager.get_mode_name())
+    
+    # Clear any pending victory/defeat states from previous games
+    pending_defeat_placement = -1
+    pending_victory = false
     
     # Add mode-specific UI indicators
     add_mode_indicator()
@@ -124,6 +139,9 @@ func add_mode_indicator():
     top_ui.move_child(mode_label, 0)
     
     print("Mode indicator added: ", mode_label.text)
+    
+    # Now create the help button (it will position itself at index 0, pushing mode indicator to index 1)
+    ui_manager.create_help_button()
 
 func add_return_to_menu_button():
     """Add a Return to Menu button to the UI"""
@@ -164,19 +182,59 @@ func _on_player_eliminated(player_id: int, placement: int):
     """Handle when a player is eliminated"""
     print("Player ", player_id, " eliminated at ", placement, " place")
     
-    # If it's the local player, show the loss screen
+    # If it's the local player, store the defeat state
     if player_id == GameState.local_player_id:
-        ui_manager.show_loss_screen(placement)
+        # If we're already in shop mode (shouldn't happen), show immediately
+        if GameState.current_mode == GameState.GameMode.SHOP:
+            ui_manager.show_loss_screen(placement)
+        else:
+            # Store for display when returning to shop
+            pending_defeat_placement = placement
+            print("Storing defeat state for display after combat")
 
 func _on_player_victorious(player_id: int):
     """Handle when a player wins"""
     print("Player ", player_id, " is victorious!")
     
-    # If it's the local player, show the victory screen
+    # If it's the local player, store the victory state
     if player_id == GameState.local_player_id:
-        ui_manager.show_victory_screen(1)
+        # If we're already in shop mode (shouldn't happen), show immediately
+        if GameState.current_mode == GameState.GameMode.SHOP:
+            ui_manager.show_victory_screen(1)
+        else:
+            # Store for display when returning to shop
+            pending_victory = true
+            print("Storing victory state for display after combat")
+
+func _on_game_mode_changed(new_mode: GameState.GameMode):
+    """Handle game mode changes - check for pending victory/defeat overlays"""
+    if new_mode == GameState.GameMode.SHOP:
+        # Check for pending victory/defeat when returning to shop
+        if pending_defeat_placement > 0:
+            print("Showing defeat screen on return to shop")
+            ui_manager.show_loss_screen(pending_defeat_placement)
+            pending_defeat_placement = -1
+        elif pending_victory:
+            print("Showing victory screen on return to shop")
+            ui_manager.show_victory_screen(1)
+            pending_victory = false
 
 func _on_card_clicked(card_node):
+    # Check if we're in battlecry target selection mode
+    if is_selecting_battlecry_target:
+        # Check if the clicked card is on the board
+        if card_node.get_parent() == ui_manager.get_board_container():
+            # Find the index of this card on the board
+            var board_container = ui_manager.get_board_container()
+            var index = 0
+            for child in board_container.get_children():
+                if child == card_node and child.has_meta("card_id"):
+                    _on_battlecry_target_selected(index)
+                    return
+                elif child.has_meta("card_id"):
+                    index += 1
+        return
+    
     # Don't show card details if we're in combat mode
     if GameState.current_mode == GameState.GameMode.COMBAT:
         return
@@ -228,7 +286,7 @@ func add_card_to_hand_direct(card_id: String):
     new_card.set_meta("card_id", card_id)
     
     ui_manager.get_hand_container().add_child(new_card)
-    update_hand_count()
+    # Count will update when state changes
 
 func add_generated_card_to_hand(card_id: String) -> bool:
     """Add a generated card (like The Coin) to hand - bypasses shop restrictions"""
@@ -313,14 +371,23 @@ func _on_card_drag_ended(card, origin_zone: String, drop_zone: String):
 
 func _handle_shop_to_hand_drop(card):
     """Handle purchasing a card by dragging from shop to hand"""
-    # Delegate to ShopManager for purchase logic
-    var success = shop_manager.handle_shop_card_purchase_by_drag(card)
-    
-    if success:
-        # Purchase succeeded - clean up the dragged card node
-        card.queue_free()
+    if GameModeManager.is_in_multiplayer_session():
+        var drag_data = shop_manager.get_card_drag_data(card)
+        
+        # Send purchase request
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "purchase_card",
+            drag_data
+        )
+        
+        # Return card to shop - visual state will update when host responds
+        _return_card_to_shop(card)
+        
+        # Show subtle feedback that action was registered
+        ui_manager.show_flash_message("Purchasing...", 0.5)
     else:
-        # Return card to shop if purchase failed
+        print("Practice mode not implemented in SSOT architecture")
         _return_card_to_shop(card)
 
 func _handle_hand_reorder_drop(card):
@@ -368,13 +435,52 @@ func _handle_hand_to_board_drop(card):
         _return_card_to_hand(card)
         return
     
-    # Play the minion to the board
-    _play_minion_to_board(card)
-    print("Played ", card_name, " to board")
-    
-    # Sync board state in multiplayer
+    # In multiplayer, use the new play_card action
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        var card_id = card.get_meta("card_id", "")
+        if card_id == "":
+            # Try to find by name if no ID meta
+            for id in CardDatabase.get_all_card_ids():
+                if CardDatabase.get_card_data(id).get("name", "") == card_name:
+                    card_id = id
+                    break
+        
+        if card_id != "":
+            # Check if card has battlecry
+            var abilities = card_data.get("abilities", [])
+            var has_targetable_battlecry = false
+            
+            for ability in abilities:
+                if ability.get("type") == "battlecry" and ability.get("target") == "other_friendly_minion":
+                    has_targetable_battlecry = true
+                    break
+            
+            # Calculate board position
+            var board_container = ui_manager.get_board_container()
+            var board_position = _calculate_board_drop_position(card, board_container)
+            
+            # If has battlecry and there are valid targets, enter selection mode
+            if has_targetable_battlecry and get_board_size() > 0:
+                # Store card info for later
+                battlecry_card_being_played = card
+                battlecry_card_id = card_id
+                battlecry_board_position = board_position
+                
+                # Return card to hand during selection
+                _return_card_to_hand(card)
+                
+                # Enter target selection mode
+                _enter_battlecry_target_mode()
+            else:
+                # No battlecry or no valid targets - play normally
+                _complete_play_card(card, card_id, board_position, -1)
+        else:
+            print("Error: Could not find card ID for ", card_name)
+            _return_card_to_hand(card)
+    else:
+        # Practice mode - just move visually
+        _play_minion_to_board(card)
+        print("Played ", card_name, " to board")
 
 func _handle_invalid_shop_drop(card):
     """Handle invalid drops for shop cards"""
@@ -388,32 +494,59 @@ func _handle_invalid_hand_drop(card):
 
 func _handle_board_reorder_drop(card):
     """Handle reordering minions within the board"""
-    var board_container = ui_manager.get_board_container()
-    var cards_on_board = board_container.get_children()
-    var new_index = -1
-
-    # Find where to place the minion based on its X position
-    # Skip the label when calculating position
-    for i in range(cards_on_board.size()):
-        if cards_on_board[i].name == "PlayerBoardLabel":
-            continue
-        if card.global_position.x < cards_on_board[i].global_position.x:
-            new_index = i
-            break
-
-    # Put the card back into the board container
-    card.reparent(board_container)
-
-    # Move it to the calculated position
-    if new_index != -1:
-        board_container.move_child(card, new_index)
-    else:
-        # If it was dropped past the last card, move it to the end
-        board_container.move_child(card, board_container.get_child_count() - 1)
-    
-    # Sync board state in multiplayer (position changed)
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        # Build new board order
+        var board_container = ui_manager.get_board_container()
+        var new_board_order = []
+        
+        # Get all cards except the one being moved
+        for child in board_container.get_children():
+            if child.has_meta("card_id") and child != card:
+                new_board_order.append(child.get_meta("card_id"))
+        
+        # Find where to insert the moved card
+        var insert_position = _calculate_board_drop_position(card, board_container)
+        var card_id = card.get_meta("card_id", "")
+        
+        if insert_position >= new_board_order.size():
+            new_board_order.append(card_id)
+        else:
+            new_board_order.insert(insert_position, card_id)
+        
+        # Request reorder action
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "reorder_board",
+            {"board_minions": new_board_order}
+        )
+        
+        # Remove the dragged card - it will be recreated when state syncs
+        card.queue_free()
+        
+        # Show subtle feedback
+        ui_manager.show_flash_message("Reordering...", 0.3)
+    else:
+        # Practice mode - just reorder visually
+        var board_container = ui_manager.get_board_container()
+        var cards_on_board = board_container.get_children()
+        var new_index = -1
+
+        # Find where to place the minion based on its X position
+        for i in range(cards_on_board.size()):
+            if cards_on_board[i].name == "PlayerBoardLabel":
+                continue
+            if card.global_position.x < cards_on_board[i].global_position.x:
+                new_index = i
+                break
+
+        # Put the card back into the board container
+        card.reparent(board_container)
+
+        # Move it to the calculated position
+        if new_index != -1:
+            board_container.move_child(card, new_index)
+        else:
+            board_container.move_child(card, board_container.get_child_count() - 1)
 
 func _handle_board_to_hand_drop(card):
     """Handle invalid attempt to return a minion from board to hand"""
@@ -428,34 +561,63 @@ func _handle_board_to_shop_drop(card):
         _return_card_to_board(card)
         return
     
-    # Get card info for feedback
-    var card_name = card.get_node("VBoxContainer/CardName").text
-    var card_data = _find_card_data_by_name(card_name)
-    
-    if card_data.is_empty():
-        print("Error: Could not find card data for ", card_name)
+    # Get card info
+    var card_id = card.get_meta("card_id", "")
+    if card_id == "":
+        print("Error: No card_id metadata on board card")
         _return_card_to_board(card)
         return
     
-    # Only minions can be sold (should always be true since it's from board)
-    if card_data.get("type", "") != "minion":
-        print("Error: Non-minion on board - cannot sell")
-        _return_card_to_board(card)
-        return
-    
-    # Execute the sale
-    GameState.gain_gold(1)
-    card.queue_free()  # Remove the minion card
-    
-    # Update displays
-    update_board_count()
-    ui_manager.update_gold_display_detailed()  # Update gold display
-    
-    print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
-    
-    # Sync board state in multiplayer (minion sold)
     if GameModeManager.is_in_multiplayer_session():
-        _sync_board_state_to_network()
+        # Get the player's current board state from data
+        var player = GameState.get_local_player()
+        if not player:
+            print("Error: Could not find local player")
+            _return_card_to_board(card)
+            return
+        
+        # Find the index of this card in the player's board_minions array
+        var board_index = -1
+        for i in range(player.board_minions.size()):
+            var minion = player.board_minions[i]
+            if minion.get("card_id", "") == card_id:
+                board_index = i
+                break
+        
+        print("Sell minion - card_id: ", card_id, ", board_index: ", board_index, ", board data: ", player.board_minions)
+        
+        if board_index >= 0:
+            # Request sell action
+            NetworkManager.request_game_action.rpc_id(
+                GameState.host_player_id,
+                "sell_minion",
+                {
+                    "card_id": card_id,
+                    "board_index": board_index
+                }
+            )
+            
+            # Return card to board - visual state will update when host responds
+            _return_card_to_board(card)
+            
+            # Show subtle feedback
+            ui_manager.show_flash_message("Selling minion...", 0.5)
+        else:
+            print("Error: Could not find board index for card")
+            _return_card_to_board(card)
+    else:
+        # Practice mode
+        var card_name = card.get_node("VBoxContainer/CardName").text
+        
+        # Execute the sale locally
+        GameState.gain_gold(1)
+        card.queue_free()
+        
+        # Update displays
+        update_board_count()
+        ui_manager.update_gold_display_detailed()
+        
+        print("Sold ", card_name, " for 1 gold (Current gold: ", GameState.current_gold, ")")
 
 func _handle_invalid_board_drop(card):
     """Handle invalid drops for board cards"""
@@ -522,11 +684,44 @@ func _play_minion_to_board(card):
         # If dropped past the last card, move to end (but before label if it exists)
         board_container.move_child(card, board_container.get_child_count() - 1)
     
-    # Update counts
-    update_hand_count()
-    update_board_count()
+    # In practice mode, we need to update the player state first
+    # For now, just update visual - counts will update when state changes
+    # TODO: Update practice mode to use proper state management
 
-# _unhandled_input removed - now handled by DragDropManager
+func _calculate_board_drop_position(card: Node, board_container: Container) -> int:
+    """Calculate where a card should be inserted on the board based on drop position"""
+    var cards_on_board = board_container.get_children()
+    var position = 0
+    
+    # Find insertion position based on X coordinate
+    for i in range(cards_on_board.size()):
+        if cards_on_board[i].name == "PlayerBoardLabel":
+            continue
+        if not cards_on_board[i].has_meta("card_id"):
+            continue
+        if card.global_position.x < cards_on_board[i].global_position.x:
+            return position
+        position += 1
+    
+    # If we get here, add to end
+    return position
+
+func _unhandled_input(event):
+    # Check for right-click to cancel battlecry selection
+    if is_selecting_battlecry_target and event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+            # Cancel battlecry selection and return card to hand
+            _return_card_to_hand(battlecry_card_being_played)
+            _exit_battlecry_target_mode()
+            ui_manager.show_flash_message("Battlecry cancelled", 1.0)
+            get_viewport().set_input_as_handled()
+    
+    # Check for click to skip combat animations
+    if GameState.current_mode == GameState.GameMode.COMBAT and event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+            if combat_manager and combat_manager.has_method("skip_all_combat_animations"):
+                combat_manager.skip_all_combat_animations()
+                get_viewport().set_input_as_handled()
 
 # Visual feedback functions moved to DragDropManager
 
@@ -705,15 +900,44 @@ func _on_return_to_shop_button_pressed() -> void:
 
 func _on_refresh_shop_button_pressed() -> void:
     """Handle refresh shop button press"""
-    shop_manager.handle_refresh_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "refresh_shop",
+            {}
+        )
+        ui_manager.show_flash_message("Refreshing shop...", 0.5)
+    else:
+        print("Practice mode not implemented in SSOT architecture")
 
 func _on_freeze_button_pressed() -> void:
     """Handle freeze button press"""
-    shop_manager.handle_freeze_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "toggle_freeze",
+            {}
+        )
+        ui_manager.show_flash_message("Toggling freeze...", 0.3)
+    else:
+        print("Practice mode not implemented in SSOT architecture")
 
 func _on_upgrade_shop_button_pressed() -> void:
     """Handle upgrade shop button press"""
-    shop_manager.handle_upgrade_button_pressed()
+    if GameModeManager.is_in_multiplayer_session():
+        NetworkManager.request_game_action.rpc_id(
+            GameState.host_player_id,
+            "upgrade_shop",
+            {}
+        )
+        ui_manager.show_flash_message("Upgrading shop...", 0.5)
+    else:
+        print("Practice mode not implemented in SSOT architecture")
+
+func prepare_shop_for_combat() -> void:
+    """Prepare shop state before transitioning to combat"""
+    # In SSOT architecture, nothing to do here - state is managed by host
+    pass
 
 # Note: End turn button removed - turns now advance automatically after combat
 # func _on_end_turn_button_pressed() -> void:
@@ -828,3 +1052,128 @@ func _sync_board_state_to_network():
 # Will implement proper testing system later
 
 # Combat preparation functions moved to CombatManager
+# === BATTLECRY FUNCTIONS ===
+
+func _enter_battlecry_target_mode():
+    """Enter battlecry target selection mode"""
+    is_selecting_battlecry_target = true
+    print("Entering battlecry target selection mode")
+    
+    # Highlight valid targets
+    var board_container = ui_manager.get_board_container()
+    var valid_targets = 0
+    for child in board_container.get_children():
+        if child.has_meta("card_id"):
+            # Add glowing outline to valid targets
+            _add_battlecry_target_highlight(child)
+            valid_targets += 1
+    
+    print("Found ", valid_targets, " valid battlecry targets")
+    
+    # Show instruction message
+    ui_manager.show_flash_message("Click a minion to buff +1/+1 (Right-click to cancel)", 0)
+
+func _add_battlecry_target_highlight(card: Node):
+    """Add visual highlight to a valid battlecry target"""
+    # Create a glowing outline effect
+    var outline = ReferenceRect.new()
+    outline.name = "BattlecryTargetOutline"
+    outline.border_color = Color(1.0, 0.843, 0.0, 1.0)  # Gold color
+    outline.border_width = 5  # Thicker border for visibility
+    outline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    
+    # Match the card's size
+    outline.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    
+    card.add_child(outline)
+    
+    # Add pulsing animation
+    var tween = create_tween()
+    tween.set_loops()
+    tween.tween_property(outline, "modulate:a", 0.3, 0.5)
+    tween.tween_property(outline, "modulate:a", 1.0, 0.5)
+    # Store tween reference on the outline so we can kill it later
+    outline.set_meta("tween", tween)
+    
+    # Also add a slight scale animation to the card
+    var card_tween = create_tween()
+    card_tween.set_loops()
+    card_tween.tween_property(card, "scale", Vector2(1.05, 1.05), 0.5)
+    card_tween.tween_property(card, "scale", Vector2(1.0, 1.0), 0.5)
+    # Store tween reference on the card so we can kill it later
+    card.set_meta("battlecry_scale_tween", card_tween)
+
+func _remove_all_battlecry_highlights():
+    """Remove all battlecry target highlights"""
+    var board_container = ui_manager.get_board_container()
+    for child in board_container.get_children():
+        if child.has_meta("card_id"):
+            # Kill the scale tween if it exists
+            if child.has_meta("battlecry_scale_tween"):
+                var scale_tween = child.get_meta("battlecry_scale_tween")
+                if scale_tween and is_instance_valid(scale_tween):
+                    scale_tween.kill()
+                child.remove_meta("battlecry_scale_tween")
+            
+            # Remove the outline and kill its tween
+            var outline = child.get_node_or_null("BattlecryTargetOutline")
+            if outline:
+                if outline.has_meta("tween"):
+                    var outline_tween = outline.get_meta("tween")
+                    if outline_tween and is_instance_valid(outline_tween):
+                        outline_tween.kill()
+                outline.queue_free()
+            
+            # Reset scale
+            child.scale = Vector2(1.0, 1.0)
+
+func _exit_battlecry_target_mode():
+    """Exit battlecry target selection mode"""
+    is_selecting_battlecry_target = false
+    _remove_all_battlecry_highlights()
+    
+    # Clear stored data
+    battlecry_card_being_played = null
+    battlecry_card_id = ""
+    battlecry_board_position = -1
+
+func _on_battlecry_target_selected(target_index: int):
+    """Handle battlecry target selection"""
+    if not is_selecting_battlecry_target:
+        return
+    
+    # Complete the play with the selected target
+    # Note: battlecry_card_being_played is already in hand, so we pass null to avoid double-handling
+    _complete_play_card(null, battlecry_card_id, battlecry_board_position, target_index)
+    
+    # Exit selection mode
+    _exit_battlecry_target_mode()
+
+func _complete_play_card(card: Node, card_id: String, board_position: int, battlecry_target: int):
+    """Complete playing a card with optional battlecry target"""
+    # Request play card action with battlecry target
+    var params = {
+        "card_id": card_id,
+        "board_position": board_position
+    }
+    
+    if battlecry_target >= 0:
+        params["battlecry_target"] = battlecry_target
+    
+    NetworkManager.request_game_action.rpc_id(
+        GameState.host_player_id,
+        "play_card",
+        params
+    )
+    
+    # For battlecry cards, the card is already in hand, so just remove it
+    # For non-battlecry cards, return to hand for non-host players
+    if card and is_instance_valid(card):
+        if !GameState.is_host():
+            _return_card_to_hand(card)
+        else:
+            # For host, remove the card from hand immediately since state will update
+            card.queue_free()
+    
+    # Show subtle feedback
+    ui_manager.show_flash_message("Playing minion...", 0.5)

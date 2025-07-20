@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3 uid="uid://c1gx8xj4qr5p8"]
+[gd_scene load_steps=3 format=3 uid="uid://c1gx8xj4qr5p8"]
 
 [ext_resource type="Script" path="res://main_menu.gd" id="1_8fx7x"]
+[ext_resource type="Texture2D" uid="uid://bnujxu3y1ey1i" path="res://assets/images/other/OpenBattlefields_title.png" id="2_title"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -32,14 +33,17 @@ offset_bottom = 300.0
 layout_mode = 2
 size_flags_vertical = 2
 
-[node name="GameTitle" type="Label" parent="VBoxContainer/TitleContainer"]
+[node name="TitleImage" type="TextureRect" parent="VBoxContainer/TitleContainer"]
 layout_mode = 2
-size_flags_vertical = 6
-theme_override_colors/font_color = Color(1, 1, 1, 1)
-theme_override_font_sizes/font_size = 48
-text = "OpenBattlefields"
-horizontal_alignment = 1
-vertical_alignment = 1
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(1600, 600)
+texture = ExtResource("2_title")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Spacer" type="Control" parent="VBoxContainer/TitleContainer"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 20)
 
 [node name="PlayerNameContainer" type="VBoxContainer" parent="VBoxContainer"]
 layout_mode = 2
@@ -53,54 +57,68 @@ horizontal_alignment = 1
 
 [node name="PlayerNameInput" type="LineEdit" parent="VBoxContainer/PlayerNameContainer"]
 layout_mode = 2
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(300, 0)
 theme_override_font_sizes/font_size = 16
 placeholder_text = "Enter your name"
 alignment = 1
-max_length = 20
 
-[node name="ModeSelection" type="VBoxContainer" parent="VBoxContainer"]
+[node name="Spacer2" type="Control" parent="VBoxContainer"]
 layout_mode = 2
-size_flags_vertical = 2
+custom_minimum_size = Vector2(0, 50)
+
+[node name="MenuButtons" type="VBoxContainer" parent="VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
 alignment = 1
 
-[node name="PracticeButton" type="Button" parent="VBoxContainer/ModeSelection"]
+[node name="CreateLobbyButton" type="Button" parent="VBoxContainer/MenuButtons"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 24
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(250, 50)
+theme_override_font_sizes/font_size = 20
+text = "Host Game"
+
+[node name="JoinLobbyButton" type="Button" parent="VBoxContainer/MenuButtons"]
+layout_mode = 2
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(250, 50)
+theme_override_font_sizes/font_size = 20
+text = "Join Game"
+
+[node name="PracticeButton" type="Button" parent="VBoxContainer/MenuButtons"]
+layout_mode = 2
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(250, 50)
+theme_override_font_sizes/font_size = 20
 text = "Practice Mode"
 
-[node name="MultiplayerButton" type="Button" parent="VBoxContainer/ModeSelection"]
+[node name="QuitButton" type="Button" parent="VBoxContainer/MenuButtons"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 24
-text = "Multiplayer Mode"
-disabled = true
-
-[node name="HSeparator" type="HSeparator" parent="VBoxContainer/ModeSelection"]
-layout_mode = 2
-
-[node name="ExitButton" type="Button" parent="VBoxContainer/ModeSelection"]
-layout_mode = 2
+size_flags_horizontal = 4
+custom_minimum_size = Vector2(250, 50)
 theme_override_font_sizes/font_size = 20
-text = "Exit Game"
+text = "Quit"
 
-[node name="InfoPanel" type="Panel" parent="VBoxContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-custom_minimum_size = Vector2(0, 200)
-
-[node name="ModeDescription" type="RichTextLabel" parent="VBoxContainer/InfoPanel"]
+[node name="VersionLabel" type="Label" parent="."]
 layout_mode = 1
-anchors_preset = 15
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 20.0
-offset_top = 20.0
-offset_right = -20.0
-offset_bottom = -20.0
-theme_override_font_sizes/normal_font_size = 16
-bbcode_enabled = true
-text = "[b]OpenBattlefields[/b]
+offset_left = -100.0
+offset_top = -30.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 14
+text = "v0.1.0"
+horizontal_alignment = 2
 
-Choose your game mode to begin playing. Hover over the buttons to learn more about each mode."
-scroll_active = true
-fit_content = true
-autowrap_mode = 3 
+[connection signal="pressed" from="VBoxContainer/MenuButtons/CreateLobbyButton" to="." method="_on_create_lobby_button_pressed"]
+[connection signal="pressed" from="VBoxContainer/MenuButtons/JoinLobbyButton" to="." method="_on_join_lobby_button_pressed"]
+[connection signal="pressed" from="VBoxContainer/MenuButtons/PracticeButton" to="." method="_on_practice_button_pressed"]
+[connection signal="pressed" from="VBoxContainer/MenuButtons/QuitButton" to="." method="_on_quit_button_pressed"]

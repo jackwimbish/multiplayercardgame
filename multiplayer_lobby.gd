@@ -56,7 +56,20 @@ func _ready():
     setup_ui()
     connect_signals()
     load_network_settings()
-    set_lobby_state(LobbyState.MENU)
+    
+    # Check for scene parameters from SceneManager
+    var params = SceneManager.get_scene_params()
+    if params.has("mode"):
+        if params.mode == "host":
+            print("Starting in host mode")
+            set_lobby_state(LobbyState.HOST_SETUP)
+        elif params.mode == "join":
+            print("Starting in join mode")
+            set_lobby_state(LobbyState.JOIN_SETUP)
+        else:
+            set_lobby_state(LobbyState.MENU)
+    else:
+        set_lobby_state(LobbyState.MENU)
 
 func setup_ui():
     """Initialize UI elements"""

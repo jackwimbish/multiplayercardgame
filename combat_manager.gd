@@ -16,6 +16,10 @@ var final_enemy_minions: Array = []      # Surviving CombatMinions
 var original_player_count: int = 0       # For dead minion slots
 var original_enemy_count: int = 0        # For dead minion slots
 
+# Animation system
+var animation_player: CombatAnimationPlayer
+var skip_animations: bool = false
+
 # Constants
 const DEFAULT_COMBAT_DAMAGE: int = 5
 
@@ -30,6 +34,9 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
     main_layout = main_layout_ref
     shop_manager = shop_manager_ref
     
+    # Initialize animation player
+    animation_player = CombatAnimationPlayer.new()
+    
     print("CombatManager initialized")
     
     # Connect to game mode changes for multiplayer sync
@@ -41,6 +48,7 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
         NetworkManager.combat_started.connect(_on_multiplayer_combat_started)
         NetworkManager.combat_results_received.connect(_on_combat_results_received)
         NetworkManager.combat_results_received_v2.connect(_on_combat_results_received_v2)
+        NetworkManager.combat_results_received_v3.connect(_on_combat_results_received_v3)
 
 # === PUBLIC INTERFACE FOR GAME_BOARD ===
 
@@ -81,6 +89,12 @@ func start_multiplayer_combat() -> void:
     
     # Generate deterministic seed for combat
     var combat_seed = Time.get_ticks_msec()
+    
+    # Prepare shop state for combat phase (save frozen cards)
+    if main_layout:
+        var game_board = main_layout.get_parent()
+        if game_board and game_board.has_method("prepare_shop_for_combat"):
+            game_board.prepare_shop_for_combat()
     
     # Change phase to combat
     NetworkManager.change_game_phase(GameState.GameMode.COMBAT)
@@ -142,10 +156,17 @@ func return_to_shop() -> void:
     """Handle returning to shop mode after combat"""
     print("Returning to shop from combat")
     
-    # Check if the local player is eliminated - if so, don't return to shop
-    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
+    # Check if the local player is eliminated
+    var is_eliminated = GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id)
+    
+    # If eliminated but NOT the host, don't return to shop
+    if is_eliminated and not NetworkManager.is_host:
         print("Player is eliminated - staying on defeat screen")
         return
+    
+    # If eliminated AND host, continue to advance the game for others
+    if is_eliminated and NetworkManager.is_host:
+        print("Host is eliminated but advancing game for other players")
     
     if GameModeManager.is_in_multiplayer_session():
         # In multiplayer, only host can advance turn and change phase
@@ -259,6 +280,9 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
         execute_attack(attacker, defender, action_log)
         attack_count += 1
         
+        # Check if attacker died
+        var attacker_died = attacker.current_health <= 0
+        
         # Remove dead minions
         player_minions = player_minions.filter(func(m): return m.current_health > 0)
         enemy_minions = enemy_minions.filter(func(m): return m.current_health > 0)
@@ -276,11 +300,13 @@ func run_combat(player_minions: Array, enemy_minions: Array) -> Array:
             GameState.take_damage(DEFAULT_COMBAT_DAMAGE, false)
             break
         
-        # Advance turn
-        if p_turn:
-            p_attacker_index += 1
-        else:
-            e_attacker_index += 1
+        # Advance turn - only increment index if attacker didn't die
+        # If attacker died, the array shifted left, so next attacker is at current index
+        if not attacker_died:
+            if p_turn:
+                p_attacker_index += 1
+            else:
+                e_attacker_index += 1
         p_turn = not p_turn
     
     # Handle max attacks reached
@@ -527,32 +553,21 @@ func _clear_enemy_board_from_shop_area() -> void:
         child.queue_free()
 
 func _restore_player_board_appearance() -> void:
-    """Restore normal appearance to all minions on player board"""
+    """Clear all combat visuals - board will be rebuilt from state"""
     var board_container = main_layout.get_node("PlayerBoard")
     var children_to_remove = []
     
-    # First, remove all result cards and dead minion cards
-    for child in board_container.get_children():
-        if (child.name.begins_with("PlayerResult_") or 
-            child.name.begins_with("PlayerDead_")):
-            children_to_remove.append(child)
+    print("CombatManager: Clearing all board visuals for complete rebuild")
     
-    for child in children_to_remove:
-        child.queue_free()
-    
-    # Then, restore visibility and appearance of original minion cards
+    # Remove ALL cards except the label - we'll rebuild from scratch
     for child in board_container.get_children():
         if child.name != "PlayerBoardLabel":
-            # Make original cards visible again
-            child.visible = true
-            
-            # Reset modulate to white (normal appearance)
-            child.modulate = Color.WHITE
-            
-            # Also restore health text color if it exists
-            var stats_label = child.find_child("CardStats", true, false)
-            if stats_label and stats_label is Label:
-                stats_label.remove_theme_color_override("font_color")
+            children_to_remove.append(child)
+    
+    print("CombatManager: Removing ", children_to_remove.size(), " cards from board")
+    for child in children_to_remove:
+        board_container.remove_child(child)
+        child.queue_free()
 
 func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array) -> void:
     """Display the opponent's board in multiplayer combat"""
@@ -582,12 +597,17 @@ func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, 
     
     # Create visual representations of opponent's minions
     for i in range(opponent_board.size()):
-        var card_id = opponent_board[i]
+        var minion = opponent_board[i]
+        var card_id = minion.get("card_id", "")
         var card_data = CardDatabase.get_card_data(card_id).duplicate()
         
         if card_data.is_empty():
             print("Warning: Could not find card data for ", card_id)
             continue
+        
+        # Override with current stats to show buffs
+        card_data["attack"] = minion.get("current_attack", card_data.get("attack", 0))
+        card_data["health"] = minion.get("current_health", card_data.get("health", 1))
         
         # Create enemy card using CardFactory
         var enemy_card = CardFactory.create_card(card_data, card_id)
@@ -598,6 +618,13 @@ func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, 
         
         # Add visual indication this is an enemy
         enemy_card.modulate = Color(1.0, 0.8, 0.8)  # Slight red tint
+        
+        # Check if minion is buffed and apply green color
+        var base_card = CardDatabase.get_card_data(card_id)
+        var is_buffed = (minion.get("current_attack", 0) > base_card.get("attack", 0) or 
+                         minion.get("current_health", 1) > base_card.get("health", 1))
+        if is_buffed and enemy_card.has_node("VBoxContainer/BottomRow/StatsLabel"):
+            enemy_card.get_node("VBoxContainer/BottomRow/StatsLabel").modulate = Color.GREEN
         
         main_layout.get_node("ShopArea").add_child(enemy_card)
 
@@ -707,7 +734,10 @@ func format_combat_action(action: Dictionary) -> String:
     """Format a combat action for display"""
     match action.get("type", ""):
         "combat_start":
-            return "Combat begins! Player: %d minions vs Enemy: %d minions" % [action.get("player_minions", 0), action.get("enemy_minions", 0)]
+            # Handle both practice mode (player_minions/enemy_minions) and multiplayer (player1_minions/player2_minions)
+            var p1_count = action.get("player_minions", action.get("player1_minions", 0))
+            var p2_count = action.get("enemy_minions", action.get("player2_minions", 0))
+            return "Combat begins! Player: %d minions vs Enemy: %d minions" % [p1_count, p2_count]
         "attack":
             return "%s attacks %s (%d/%d vs %d/%d)" % [
                 action.get("attacker_id", "?"), 
@@ -941,13 +971,23 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
     """Handle game mode changes from network sync"""
     print("CombatManager: Game mode changed to ", GameState.GameMode.keys()[new_mode])
     
-    # If player is eliminated, don't process mode changes
-    if GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id):
-        print("CombatManager: Player is eliminated - ignoring mode change")
+    # If player is eliminated AND not the host, don't process mode changes
+    var is_eliminated = GameModeManager.is_in_multiplayer_session() and GameState.is_player_eliminated(GameState.local_player_id)
+    if is_eliminated and not NetworkManager.is_host:
+        print("CombatManager: Player is eliminated and not host - ignoring mode change")
         return
     
     # Update UI based on new mode
     if new_mode == GameState.GameMode.COMBAT:
+        # For non-host players, prepare shop state when transitioning to combat
+        # (Host already does this in start_multiplayer_combat)
+        if GameModeManager.is_in_multiplayer_session() and not NetworkManager.is_host:
+            print("CombatManager: Non-host preparing shop for combat phase")
+            if main_layout:
+                var game_board = main_layout.get_parent()
+                if game_board and game_board.has_method("prepare_shop_for_combat"):
+                    game_board.prepare_shop_for_combat()
+        
         # Hide shop elements
         _hide_shop_elements()
         
@@ -991,14 +1031,24 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         # Restore hand area
         _show_hand_area()
         
+        # Force a complete board refresh from state to fix any animation modifications
+        # Always refresh the board when returning from combat to ensure correct display
+        var local_player = GameState.get_local_player()
+        if local_player and NetworkManager:
+            print("CombatManager: Forcing board refresh after combat")
+            print("CombatManager: Player board minions in state: ", local_player.board_minions)
+            # The board was already cleared in _restore_player_board_appearance
+            # Now recreate from state
+            NetworkManager._update_board_display(local_player)
+        
         # Update displays - turn has already advanced so values should be correct
-        ui_manager.update_all_game_displays()
+        # Use call_deferred to ensure combat visualization cards are fully removed
+        ui_manager.call_deferred("update_all_game_displays")
         
         # In multiplayer, force a shop refresh to ensure cards are displayed
         # Use call_deferred to ensure UI is ready
         if GameModeManager.is_in_multiplayer_session() and shop_manager:
             print("CombatManager: Scheduling shop refresh after returning from combat")
-            var local_player = GameState.get_local_player()
             if local_player:
                 print("  Local player shop cards: ", local_player.shop_cards)
                 if local_player.shop_cards.size() > 0:
@@ -1106,25 +1156,33 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     var original_p2_count = player2_board.size()
     
     for i in range(player1_board.size()):
-        var card_data = CardDatabase.get_card_data(player1_board[i])
+        var minion = player1_board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         player1_minions.append({
-            "id": player1_board[i],
+            "id": card_id,
+            "unique_id": "p1_" + str(i),  # Unique identifier for this combat
             "position": i,
-            "attack": card_data.get("attack", 1),
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
-            "owner": player1_name
+            "attack": minion.get("current_attack", card_data.get("attack", 1)),
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
+            "owner": player1_name,
+            "is_dead": false  # Track death state instead of removing
         })
     
     for i in range(player2_board.size()):
-        var card_data = CardDatabase.get_card_data(player2_board[i])
+        var minion = player2_board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         player2_minions.append({
-            "id": player2_board[i],
+            "id": card_id,
+            "unique_id": "p2_" + str(i),  # Unique identifier for this combat
             "position": i,
-            "attack": card_data.get("attack", 1),
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
-            "owner": player2_name
+            "attack": minion.get("current_attack", card_data.get("attack", 1)),
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
+            "owner": player2_name,
+            "is_dead": false  # Track death state instead of removing
         })
     
     # Determine who goes first
@@ -1142,27 +1200,84 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     # Combat loop
     var max_attacks = 20
     var attack_count = 0
+    var p1_attacker_index = 0
+    var p2_attacker_index = 0
     
-    while not player1_minions.is_empty() and not player2_minions.is_empty() and attack_count < max_attacks:
-        var attacker
-        var defender
-        var attacker_list
+    # Helper function to check if any minions are alive
+    var has_living_p1 = func(): 
+        for m in player1_minions:
+            if not m.is_dead:
+                return true
+        return false
+    
+    var has_living_p2 = func():
+        for m in player2_minions:
+            if not m.is_dead:
+                return true
+        return false
+    
+    # Helper function to get living defenders
+    var get_living_defenders = func(minion_list: Array) -> Array:
+        var living = []
+        for m in minion_list:
+            if not m.is_dead:
+                living.append(m)
+        return living
+    
+    while has_living_p1.call() and has_living_p2.call() and attack_count < max_attacks:
+        var attacker = null
         var defender_list
         
         if p1_turn:
-            attacker_list = player1_minions
-            defender_list = player2_minions
+            # Find next living attacker for player 1
+            while p1_attacker_index < player1_minions.size():
+                if not player1_minions[p1_attacker_index].is_dead:
+                    attacker = player1_minions[p1_attacker_index]
+                    break
+                p1_attacker_index += 1
+            
+            # If we've gone through all minions, wrap around
+            if attacker == null:
+                p1_attacker_index = 0
+                while p1_attacker_index < player1_minions.size():
+                    if not player1_minions[p1_attacker_index].is_dead:
+                        attacker = player1_minions[p1_attacker_index]
+                        break
+                    p1_attacker_index += 1
+            
+            defender_list = get_living_defenders.call(player2_minions)
         else:
-            attacker_list = player2_minions
-            defender_list = player1_minions
+            # Find next living attacker for player 2
+            while p2_attacker_index < player2_minions.size():
+                if not player2_minions[p2_attacker_index].is_dead:
+                    attacker = player2_minions[p2_attacker_index]
+                    break
+                p2_attacker_index += 1
+            
+            # If we've gone through all minions, wrap around
+            if attacker == null:
+                p2_attacker_index = 0
+                while p2_attacker_index < player2_minions.size():
+                    if not player2_minions[p2_attacker_index].is_dead:
+                        attacker = player2_minions[p2_attacker_index]
+                        break
+                    p2_attacker_index += 1
+            
+            defender_list = get_living_defenders.call(player1_minions)
         
-        # Choose attacker and defender
-        attacker = attacker_list[rng.randi() % attacker_list.size()]
-        defender = defender_list[rng.randi() % defender_list.size()]
+        # This shouldn't happen if our has_living checks work correctly
+        if attacker == null or defender_list.is_empty():
+            print("Combat error: No attacker or defenders found")
+            break
         
-        # Log attack with player names and positions
+        # Choose random defender from living defenders
+        var defender = defender_list[rng.randi() % defender_list.size()]
+        
+        # Log attack with unique IDs and display names
         action_log.append({
             "type": "attack",
+            "attacker_unique_id": attacker.unique_id,
+            "defender_unique_id": defender.unique_id,
             "attacker_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown") + " (pos " + str(attacker.position) + ")",
             "defender_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown") + " (pos " + str(defender.position) + ")",
             "attacker_attack": attacker.attack,
@@ -1175,25 +1290,34 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
         attacker.health -= defender.attack
         defender.health -= attacker.attack
         
-        # Check deaths
-        if attacker.health <= 0:
+        # Mark deaths but don't remove from arrays
+        if attacker.health <= 0 and not attacker.is_dead:
             action_log.append({"type": "death", "target_id": attacker.owner + "'s " + CardDatabase.get_card_data(attacker.id).get("name", "Unknown")})
-            attacker_list.erase(attacker)
+            attacker.is_dead = true
         
-        if defender.health <= 0:
+        if defender.health <= 0 and not defender.is_dead:
             action_log.append({"type": "death", "target_id": defender.owner + "'s " + CardDatabase.get_card_data(defender.id).get("name", "Unknown")})
-            defender_list.erase(defender)
+            defender.is_dead = true
+        
+        # Always advance attacker index
+        if p1_turn:
+            p1_attacker_index += 1
+        else:
+            p2_attacker_index += 1
         
         # Switch turns
         p1_turn = not p1_turn
         attack_count += 1
     
-    # Determine winner
-    if player1_minions.is_empty() and player2_minions.is_empty():
+    # Determine winner based on living minions
+    var p1_alive = has_living_p1.call()
+    var p2_alive = has_living_p2.call()
+    
+    if not p1_alive and not p2_alive:
         action_log.append({"type": "combat_tie", "reason": "both_died"})
-    elif player1_minions.is_empty():
+    elif not p1_alive:
         action_log.append({"type": "combat_end", "winner": "player2"})
-    elif player2_minions.is_empty():
+    elif not p2_alive:
         action_log.append({"type": "combat_end", "winner": "player1"})
     else:
         action_log.append({"type": "combat_tie", "reason": "max_attacks_reached"})
@@ -1218,12 +1342,15 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
                 break
         if not found:
             # This position had a minion that died
+            var minion = player1_board[i]
+            var card_id = minion.get("card_id", "")
+            var card_data = CardDatabase.get_card_data(card_id)
             player1_final.append({
-                "card_id": player1_board[i],
+                "card_id": card_id,
                 "position": i,
                 "health": 0,
-                "max_health": CardDatabase.get_card_data(player1_board[i]).get("health", 1),
-                "attack": CardDatabase.get_card_data(player1_board[i]).get("attack", 1)
+                "max_health": minion.get("current_health", card_data.get("health", 1)),
+                "attack": minion.get("current_attack", card_data.get("attack", 1))
             })
     
     # Same for player 2
@@ -1242,27 +1369,48 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
                 break
         if not found:
             # This position had a minion that died
+            var minion = player2_board[i]
+            var card_id = minion.get("card_id", "")
+            var card_data = CardDatabase.get_card_data(card_id)
             player2_final.append({
-                "card_id": player2_board[i],
+                "card_id": card_id,
                 "position": i,
                 "health": 0,
-                "max_health": CardDatabase.get_card_data(player2_board[i]).get("health", 1),
-                "attack": CardDatabase.get_card_data(player2_board[i]).get("attack", 1)
+                "max_health": minion.get("current_health", card_data.get("health", 1)),
+                "attack": minion.get("current_attack", card_data.get("attack", 1))
             })
     
     return {"log": action_log, "player1_final": player1_final, "player2_final": player2_final}
+
+func _on_combat_animations_complete() -> void:
+    """Called when combat animations are complete"""
+    print("Combat animations complete")
+    # Final boards are already displayed by animation system
+    # Just ensure UI is updated
+    ui_manager.update_health_displays()
+    
+    # When animations complete, we need to ensure the board is refreshed when returning to shop
+    # The actual refresh will happen in _on_game_mode_changed when switching to SHOP mode
+
+func skip_all_combat_animations() -> void:
+    """Skip all combat animations and show final state immediately"""
+    skip_animations = true
+    if animation_player and animation_player.is_playing:
+        animation_player.skip_combat()
 
 func _create_final_state(board: Array) -> Array:
     """Create final state for a board with no combat (all minions at full health)"""
     var final_state = []
     for i in range(board.size()):
-        var card_data = CardDatabase.get_card_data(board[i])
+        var minion = board[i]
+        var card_id = minion.get("card_id", "")
+        var card_data = CardDatabase.get_card_data(card_id)
         final_state.append({
-            "card_id": board[i],
+            "card_id": card_id,
             "position": i,
-            "health": card_data.get("health", 1),
-            "max_health": card_data.get("health", 1),
-            "attack": card_data.get("attack", 1)
+            "health": minion.get("current_health", card_data.get("health", 1)),
+            "max_health": minion.get("current_health", card_data.get("health", 1)),
+            "attack": minion.get("current_attack", card_data.get("attack", 1))
         })
     return final_state
 
@@ -1304,6 +1452,84 @@ func _on_combat_results_received_v2(combat_log: Array, player1_id: int, player1_
     
     # Display the final board states
     _display_multiplayer_final_boards(final_states)
+
+func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array) -> void:
+    """Handle combat results with animations"""
+    print("Combat results v3 received - Starting combat animations")
+    print("Player1 final: ", player1_final)
+    print("Player2 final: ", player2_final)
+    print("Combat log size: ", combat_log.size())
+    
+    # Reset skip flag in case it was left on from previous combat
+    skip_animations = false
+    
+    # Display the combat log text first
+    _show_multiplayer_combat_log(combat_log)
+    
+    # Setup animation player
+    var player_board = main_layout.get_node("PlayerBoard")
+    var enemy_board = main_layout.get_node("ShopArea")
+    animation_player.setup(player_board, enemy_board, ui_manager)
+    
+    # Connect sound signals (optional - for future use)
+    # animation_player.sound_combat_start.connect(_play_combat_start_sound)
+    # animation_player.sound_attack_impact.connect(_play_attack_sound)
+    # animation_player.sound_minion_death.connect(_play_death_sound)
+    # animation_player.sound_combat_end.connect(_play_combat_end_sound)
+    
+    # We need to get the initial board states for animation
+    # The final states have dead minions with 0 health which breaks the animation
+    # Get the board states from our stored combat data or reconstruct from final states
+    var our_initial: Array = []
+    var opponent_initial: Array = []
+    
+    # Reconstruct initial states from final states (all minions start at full health)
+    if player1_id == GameState.local_player_id:
+        for i in range(player1_final.size()):
+            var minion = player1_final[i]
+            our_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p1_" + str(i)  # Consistent with combat simulation
+            })
+        for i in range(player2_final.size()):
+            var minion = player2_final[i]
+            opponent_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p2_" + str(i)  # Consistent with combat simulation
+            })
+    else:
+        for i in range(player2_final.size()):
+            var minion = player2_final[i]
+            our_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p2_" + str(i)  # Consistent with combat simulation
+            })
+        for i in range(player1_final.size()):
+            var minion = player1_final[i]
+            opponent_initial.append({
+                "card_id": minion.get("card_id", ""),
+                "current_attack": minion.get("attack", 1),
+                "current_health": minion.get("max_health", 1),  # Use max_health for initial state
+                "unique_id": "p1_" + str(i)  # Consistent with combat simulation
+            })
+    
+    # Start animations with initial states
+    if not skip_animations:
+        animation_player.play_combat_animation(combat_log, our_initial, opponent_initial)
+    else:
+        # Skip directly to final state
+        _on_combat_animations_complete()
+        # Reset skip flag for next combat
+        skip_animations = false
+        
+    # Update health displays will happen after animations complete
+    ui_manager.update_health_displays()
 
 func _display_multiplayer_final_boards(final_states: Dictionary) -> void:
     """Display final board states for both players after multiplayer combat"""

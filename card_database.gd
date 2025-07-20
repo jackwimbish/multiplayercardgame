@@ -3,154 +3,365 @@
 
 class_name CardDatabase
 
+# Cache for validated card art paths
+static var _card_art_cache: Dictionary = {}
+
 # Card database for auto-battler
 const CARDS = {
     # Tier 1 Cards (18 copies each)
-    "murloc_raider": {
+    "rockpool_hunter": {
         "type": "minion",
-        "name": "Murloc Raider",
-        "description": "A basic murloc warrior.",
+        "name": "Rockpool Hunter",
+        "description": "Battlecry: Give another friendly minion +1/+1.",
         "attack": 2,
         "health": 1,
         "tier": 1,
-        "cost": 3
+        "cost": 3,
+        "abilities": [
+            {
+                "type": "battlecry",
+                "target": "other_friendly_minion",
+                "effect": {
+                    "type": "buff",
+                    "attack": 1,
+                    "health": 1
+                }
+            }
+        ]
     },
-    "dire_wolf_alpha": {
+    "feral_prowler": {
         "type": "minion",
-        "name": "Dire Wolf Alpha",
-        "description": "Adjacent minions have +1 Attack.",
+        "name": "Feral Prowler",
+        "description": "A tier 1 beast creature",
         "attack": 2,
         "health": 2,
         "tier": 1,
         "cost": 3
     },
-    "rockpool_hunter": {
+    "wild_stalker": {
         "type": "minion",
-        "name": "Rockpool Hunter",
-        "description": "Battlecry: Give a friendly Murloc +1/+1.",
+        "name": "Wild Stalker",
+        "description": "A tier 1 beast creature",
         "attack": 2,
         "health": 3,
         "tier": 1,
         "cost": 3
     },
+    "stone_sentinel": {
+        "type": "minion",
+        "name": "Stone Sentinel",
+        "description": "A tier 1 golem creature",
+        "attack": 1,
+        "health": 3,
+        "tier": 1,
+        "cost": 3
+    },
+    "clay_guardian": {
+        "type": "minion",
+        "name": "Clay Guardian",
+        "description": "A tier 1 golem creature",
+        "attack": 1,
+        "health": 4,
+        "tier": 1,
+        "cost": 3
+    },
+    "shadow_imp": {
+        "type": "minion",
+        "name": "Shadow Imp",
+        "description": "A tier 1 demon creature",
+        "attack": 3,
+        "health": 1,
+        "tier": 1,
+        "cost": 3
+    },
+    "chaos_spawn": {
+        "type": "minion",
+        "name": "Chaos Spawn",
+        "description": "A tier 1 demon creature",
+        "attack": 3,
+        "health": 2,
+        "tier": 1,
+        "cost": 3
+    },
     
     # Tier 2 Cards (15 copies each)
-    "kindly_grandmother": {
+    "savage_hunter": {
         "type": "minion",
-        "name": "Kindly Grandmother",
-        "description": "Deathrattle: Summon a 1/1 Big Bad Wolf.",
-        "attack": 1,
-        "health": 1,
+        "name": "Savage Hunter",
+        "description": "A tier 2 beast creature",
+        "attack": 3,
+        "health": 4,
         "tier": 2,
         "cost": 3
     },
-    "harvest_golem": {
+    "pack_ravager": {
         "type": "minion",
-        "name": "Harvest Golem",
-        "description": "Deathrattle: Summon a 2/1 Damaged Golem.",
-        "attack": 2,
+        "name": "Pack Ravager",
+        "description": "A tier 2 beast creature",
+        "attack": 4,
         "health": 3,
         "tier": 2,
         "cost": 3
     },
-    "metaltooth_leaper": {
+    "granite_protector": {
         "type": "minion",
-        "name": "Metaltooth Leaper",
-        "description": "Battlecry: Give your other Mechs +2 Attack.",
-        "attack": 3,
+        "name": "Granite Protector",
+        "description": "A tier 2 golem creature",
+        "attack": 2,
+        "health": 5,
+        "tier": 2,
+        "cost": 3
+    },
+    "crystal_colossus": {
+        "type": "minion",
+        "name": "Crystal Colossus",
+        "description": "A tier 2 golem creature",
+        "attack": 2,
+        "health": 6,
+        "tier": 2,
+        "cost": 3
+    },
+    "void_stalker": {
+        "type": "minion",
+        "name": "Void Stalker",
+        "description": "A tier 2 demon creature",
+        "attack": 5,
+        "health": 2,
+        "tier": 2,
+        "cost": 3
+    },
+    "doom_caller": {
+        "type": "minion",
+        "name": "Doom Caller",
+        "description": "A tier 2 demon creature",
+        "attack": 4,
         "health": 3,
         "tier": 2,
         "cost": 3
     },
     
     # Tier 3 Cards (13 copies each)
-    "rat_pack": {
+    "alpha_predator": {
         "type": "minion",
-        "name": "Rat Pack",
-        "description": "Deathrattle: Summon a number of 1/1 Rats equal to this minion's Attack.",
-        "attack": 2,
-        "health": 2,
+        "name": "Alpha Predator",
+        "description": "A tier 3 beast creature",
+        "attack": 5,
+        "health": 4,
         "tier": 3,
         "cost": 3
     },
-    "shifter_zerus": {
+    "primal_striker": {
         "type": "minion",
-        "name": "Shifter Zerus",
-        "description": "Each turn this is in your hand, transform it into a random minion.",
-        "attack": 1,
-        "health": 1,
+        "name": "Primal Striker",
+        "description": "A tier 3 beast creature",
+        "attack": 4,
+        "health": 5,
+        "tier": 3,
+        "cost": 3
+    },
+    "obsidian_hulk": {
+        "type": "minion",
+        "name": "Obsidian Hulk",
+        "description": "A tier 3 golem creature",
+        "attack": 3,
+        "health": 6,
+        "tier": 3,
+        "cost": 3
+    },
+    "ancient_watcher": {
+        "type": "minion",
+        "name": "Ancient Watcher",
+        "description": "A tier 3 golem creature",
+        "attack": 3,
+        "health": 7,
+        "tier": 3,
+        "cost": 3
+    },
+    "abyss_walker": {
+        "type": "minion",
+        "name": "Abyss Walker",
+        "description": "A tier 3 demon creature",
+        "attack": 6,
+        "health": 3,
+        "tier": 3,
+        "cost": 3
+    },
+    "terror_bringer": {
+        "type": "minion",
+        "name": "Terror Bringer",
+        "description": "A tier 3 demon creature",
+        "attack": 7,
+        "health": 2,
         "tier": 3,
         "cost": 3
     },
     
     # Tier 4 Cards (11 copies each)
-    "savannah_highmane": {
+    "apex_hunter": {
         "type": "minion",
-        "name": "Savannah Highmane",
-        "description": "Deathrattle: Summon two 2/2 Hyenas.",
+        "name": "Apex Hunter",
+        "description": "A tier 4 beast creature",
         "attack": 6,
-        "health": 5,
+        "health": 6,
         "tier": 4,
         "cost": 3
     },
-    "cave_hydra": {
+    "ancient_prowler": {
         "type": "minion",
-        "name": "Cave Hydra",
-        "description": "Also damages the minions next to whomever this attacks.",
-        "attack": 2,
+        "name": "Ancient Prowler",
+        "description": "A tier 4 beast creature",
+        "attack": 6,
+        "health": 7,
+        "tier": 4,
+        "cost": 3
+    },
+    "diamond_defender": {
+        "type": "minion",
+        "name": "Diamond Defender",
+        "description": "A tier 4 golem creature",
+        "attack": 4,
+        "health": 8,
+        "tier": 4,
+        "cost": 3
+    },
+    "fortress_guardian": {
+        "type": "minion",
+        "name": "Fortress Guardian",
+        "description": "A tier 4 golem creature",
+        "attack": 4,
+        "health": 9,
+        "tier": 4,
+        "cost": 3
+    },
+    "nightmare_herald": {
+        "type": "minion",
+        "name": "Nightmare Herald",
+        "description": "A tier 4 demon creature",
+        "attack": 8,
         "health": 4,
+        "tier": 4,
+        "cost": 3
+    },
+    "void_reaver": {
+        "type": "minion",
+        "name": "Void Reaver",
+        "description": "A tier 4 demon creature",
+        "attack": 9,
+        "health": 3,
         "tier": 4,
         "cost": 3
     },
     
     # Tier 5 Cards (9 copies each)
-    "baron_geddon": {
+    "elder_beast": {
         "type": "minion",
-        "name": "Baron Geddon",
-        "description": "At the end of your turn, deal 2 damage to ALL other characters.",
+        "name": "Elder Beast",
+        "description": "A tier 5 beast creature",
+        "attack": 8,
+        "health": 7,
+        "tier": 5,
+        "cost": 3
+    },
+    "legendary_stalker": {
+        "type": "minion",
+        "name": "Legendary Stalker",
+        "description": "A tier 5 beast creature",
         "attack": 7,
+        "health": 8,
+        "tier": 5,
+        "cost": 3
+    },
+    "titan_construct": {
+        "type": "minion",
+        "name": "Titan Construct",
+        "description": "A tier 5 golem creature",
+        "attack": 5,
+        "health": 10,
+        "tier": 5,
+        "cost": 3
+    },
+    "eternal_sentinel": {
+        "type": "minion",
+        "name": "Eternal Sentinel",
+        "description": "A tier 5 golem creature",
+        "attack": 5,
+        "health": 11,
+        "tier": 5,
+        "cost": 3
+    },
+    "chaos_lord": {
+        "type": "minion",
+        "name": "Chaos Lord",
+        "description": "A tier 5 demon creature",
+        "attack": 10,
         "health": 5,
         "tier": 5,
         "cost": 3
     },
-    "lightfang_enforcer": {
+    "destruction_incarnate": {
         "type": "minion",
-        "name": "Lightfang Enforcer",
-        "description": "At the end of your turn, give a friendly minion of each minion type +2/+2.",
-        "attack": 2,
-        "health": 2,
+        "name": "Destruction Incarnate",
+        "description": "A tier 5 demon creature",
+        "attack": 11,
+        "health": 4,
         "tier": 5,
         "cost": 3
     },
     
     # Tier 6 Cards (6 copies each)
-    "kalecgos": {
+    "mythic_predator": {
         "type": "minion",
-        "name": "Kalecgos",
-        "description": "Your first Battlecry each turn triggers twice.",
-        "attack": 4,
-        "health": 12,
+        "name": "Mythic Predator",
+        "description": "A tier 6 beast creature",
+        "attack": 9,
+        "health": 9,
         "tier": 6,
         "cost": 3
     },
-    "zapp_slywick": {
+    "eternal_hunter": {
         "type": "minion",
-        "name": "Zapp Slywick",
-        "description": "Always attacks the enemy with the lowest Attack.",
-        "attack": 7,
+        "name": "Eternal Hunter",
+        "description": "A tier 6 beast creature",
+        "attack": 10,
         "health": 10,
         "tier": 6,
         "cost": 3
     },
-    
-    # Example Spell (for testing different card types)
-    "coin": {
-        "type": "spell",
-        "name": "The Coin",
-        "description": "Gain 1 Gold.",
-        "tier": 1,
-        "cost": 0,
-        "shop_available": false  # Generated by effects, not purchasable
+    "colossal_ancient": {
+        "type": "minion",
+        "name": "Colossal Ancient",
+        "description": "A tier 6 golem creature",
+        "attack": 6,
+        "health": 13,
+        "tier": 6,
+        "cost": 3
+    },
+    "worldbreaker_golem": {
+        "type": "minion",
+        "name": "Worldbreaker Golem",
+        "description": "A tier 6 golem creature",
+        "attack": 7,
+        "health": 14,
+        "tier": 6,
+        "cost": 3
+    },
+    "void_tyrant": {
+        "type": "minion",
+        "name": "Void Tyrant",
+        "description": "A tier 6 demon creature",
+        "attack": 13,
+        "health": 6,
+        "tier": 6,
+        "cost": 3
+    },
+    "annihilation_engine": {
+        "type": "minion",
+        "name": "Annihilation Engine",
+        "description": "A tier 6 demon creature",
+        "attack": 14,
+        "health": 6,
+        "tier": 6,
+        "cost": 3
     }
 }
 
@@ -193,13 +404,28 @@ static func is_card_shop_available(card_id: String) -> bool:
     var card_data = get_card_data(card_id)
     return card_data.get("shop_available", true)
 
+static func initialize_art_cache() -> void:
+    """Pre-cache all card art paths - call this at game startup"""
+    _card_art_cache.clear()
+    print("CardDatabase: Initializing art cache...")
+    
+    for card_id in CARDS.keys():
+        get_card_art_path(card_id)  # This will cache the path
+    
+    print("CardDatabase: Art cache initialized with ", _card_art_cache.size(), " entries")
+
 static func get_card_art_path(card_id: String) -> String:
     """Get the art path for a card, with fallback to default art"""
     var default_path = "res://assets/images/cards/default/default_card_art.png"
     
+    # Check cache first
+    if _card_art_cache.has(card_id):
+        return _card_art_cache[card_id]
+    
     # Get card data to determine type and tier
     var card_data = get_card_data(card_id)
     if card_data.is_empty():
+        _card_art_cache[card_id] = default_path
         return default_path
     
     var card_type = card_data.get("type", "minion")
@@ -217,8 +443,19 @@ static func get_card_art_path(card_id: String) -> String:
             var tier = card_data.get("tier", 1)
             specific_path = "res://assets/images/cards/tier%d/%s.png" % [tier, card_id]
     
-    # Check if specific art file exists, otherwise use default
-    if FileAccess.file_exists(specific_path):
-        return specific_path
-    else:
-        return default_path
+    # Try multiple methods to check if resource exists
+    var final_path = default_path
+    
+    # Method 1: ResourceLoader.exists (works better in exports)
+    if ResourceLoader.exists(specific_path):
+        final_path = specific_path
+    # Method 2: Try to load the resource directly
+    elif ResourceLoader.load(specific_path) != null:
+        final_path = specific_path
+    # Method 3: Check with FileAccess as fallback (for editor)
+    elif FileAccess.file_exists(specific_path):
+        final_path = specific_path
+    
+    # Cache the result
+    _card_art_cache[card_id] = final_path
+    return final_path

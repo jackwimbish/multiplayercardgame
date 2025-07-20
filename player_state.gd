@@ -4,9 +4,7 @@
 class_name PlayerState
 extends RefCounted
 
-# Signals for state changes
-signal shop_cards_changed(new_shop_cards: Array)
-signal gold_changed(new_gold: int)
+# No signals in SSOT architecture - all updates through NetworkManager
 
 # Player identification
 var player_id: int = 0
@@ -27,8 +25,9 @@ var current_tavern_upgrade_cost: int = 5
 
 # Card collections
 var hand_cards: Array = []  # Array of card IDs
-var board_minions: Array = []  # Array of card IDs  
+var board_minions: Array = []  # Array of minion objects with stats {card_id, current_attack, current_health}  
 var shop_cards: Array = []  # Array of card IDs in player's shop
+var frozen_card_ids: Array = []  # Array of card IDs frozen for next turn
 
 # Turn state
 var is_ready_for_next_phase: bool = false
@@ -79,6 +78,7 @@ func reset_game_state():
     hand_cards.clear()
     board_minions.clear()
     shop_cards.clear()
+    frozen_card_ids.clear()
     is_ready_for_next_phase = false
     has_ended_turn = false
 
@@ -99,6 +99,7 @@ func to_dict() -> Dictionary:
         "hand_cards": hand_cards,
         "board_minions": board_minions,
         "shop_cards": shop_cards,
+        "frozen_card_ids": frozen_card_ids,
         "is_ready_for_next_phase": is_ready_for_next_phase,
         "has_ended_turn": has_ended_turn,
         "ping_ms": ping_ms
@@ -125,26 +126,59 @@ func from_dict(data: Dictionary):
     hand_cards = data.get("hand_cards", [])
     board_minions = data.get("board_minions", [])
     shop_cards = data.get("shop_cards", [])
+    frozen_card_ids = data.get("frozen_card_ids", [])
     is_ready_for_next_phase = data.get("is_ready_for_next_phase", false)
     has_ended_turn = data.get("has_ended_turn", false)
     ping_ms = data.get("ping_ms", 0)
     
-    # Emit signals if values changed
-    if old_gold != current_gold:
-        print("PlayerState: Gold changed from ", old_gold, " to ", current_gold, " - emitting signal")
-        gold_changed.emit(current_gold)
+    # In SSOT architecture, NetworkManager handles all display updates
+    # No signals emitted here
+
+# === MINION HELPER FUNCTIONS ===
+
+func add_minion_to_board(card_id: String, position: int = -1) -> Dictionary:
+    """Add a minion to the board with base stats"""
+    var card_data = CardDatabase.get_card_data(card_id)
+    if card_data.is_empty():
+        return {}
     
-    if old_shop != shop_cards:
-        print("PlayerState: Shop changed from ", old_shop, " to ", shop_cards, " - emitting signal")
-        shop_cards_changed.emit(shop_cards)
+    var minion = {
+        "card_id": card_id,
+        "current_attack": card_data.get("attack", 0),
+        "current_health": card_data.get("health", 1)
+    }
+    
+    if position >= 0 and position <= board_minions.size():
+        board_minions.insert(position, minion)
+    else:
+        board_minions.append(minion)
+    
+    return minion
 
-func notify_shop_changed():
-    """Manually trigger shop changed signal (for host updates)"""
-    shop_cards_changed.emit(shop_cards)
+func remove_minion_from_board(index: int) -> Dictionary:
+    """Remove a minion from the board by index"""
+    if index >= 0 and index < board_minions.size():
+        return board_minions.pop_at(index)
+    return {}
 
-func notify_gold_changed():
-    """Manually trigger gold changed signal (for host updates)"""
-    gold_changed.emit(current_gold)
+func get_minion_at_index(index: int) -> Dictionary:
+    """Get minion data at specific board index"""
+    if index >= 0 and index < board_minions.size():
+        return board_minions[index]
+    return {}
+
+func apply_buff_to_minion(index: int, attack_buff: int, health_buff: int):
+    """Apply stat buffs to a minion at the given index"""
+    if index >= 0 and index < board_minions.size():
+        board_minions[index]["current_attack"] += attack_buff
+        board_minions[index]["current_health"] += health_buff
+
+func get_board_minion_ids() -> Array:
+    """Get array of just the card IDs for compatibility"""
+    var ids = []
+    for minion in board_minions:
+        ids.append(minion.get("card_id", ""))
+    return ids
 
 # === DEBUG FUNCTIONS ===
 
