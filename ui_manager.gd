@@ -638,8 +638,8 @@ func create_help_overlay() -> void:
     help_content.scroll_active = false  # Let ScrollContainer handle scrolling
     help_content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     help_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
-    help_content.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_SMALL)
-    help_content.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_MEDIUM)
+    help_content.add_theme_font_size_override("normal_font_size", UI_FONT_SIZE_MEDIUM)
+    help_content.add_theme_font_size_override("bold_font_size", UI_FONT_SIZE_LARGE)
     help_content.add_theme_color_override("default_color", Color.WHITE)
     help_content.text = _get_help_text()
     
