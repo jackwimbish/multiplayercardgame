@@ -16,6 +16,10 @@ var final_enemy_minions: Array = []      # Surviving CombatMinions
 var original_player_count: int = 0       # For dead minion slots
 var original_enemy_count: int = 0        # For dead minion slots
 
+# Animation system
+var animation_player: CombatAnimationPlayer
+var skip_animations: bool = false
+
 # Constants
 const DEFAULT_COMBAT_DAMAGE: int = 5
 
@@ -30,6 +34,9 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
     main_layout = main_layout_ref
     shop_manager = shop_manager_ref
     
+    # Initialize animation player
+    animation_player = CombatAnimationPlayer.new()
+    
     print("CombatManager initialized")
     
     # Connect to game mode changes for multiplayer sync
@@ -41,6 +48,7 @@ func _init(ui_manager_ref: UIManager, main_layout_ref: Control, shop_manager_ref
         NetworkManager.combat_started.connect(_on_multiplayer_combat_started)
         NetworkManager.combat_results_received.connect(_on_combat_results_received)
         NetworkManager.combat_results_received_v2.connect(_on_combat_results_received_v2)
+        NetworkManager.combat_results_received_v3.connect(_on_combat_results_received_v3)
 
 # === PUBLIC INTERFACE FOR GAME_BOARD ===
 
@@ -533,32 +541,21 @@ func _clear_enemy_board_from_shop_area() -> void:
         child.queue_free()
 
 func _restore_player_board_appearance() -> void:
-    """Restore normal appearance to all minions on player board"""
+    """Clear all combat visuals - board will be rebuilt from state"""
     var board_container = main_layout.get_node("PlayerBoard")
     var children_to_remove = []
     
-    # First, remove all result cards and dead minion cards
-    for child in board_container.get_children():
-        if (child.name.begins_with("PlayerResult_") or 
-            child.name.begins_with("PlayerDead_")):
-            children_to_remove.append(child)
+    print("CombatManager: Clearing all board visuals for complete rebuild")
     
-    for child in children_to_remove:
-        child.free()  # Use free() for immediate removal instead of queue_free()
-    
-    # Then, restore visibility and appearance of original minion cards
+    # Remove ALL cards except the label - we'll rebuild from scratch
     for child in board_container.get_children():
         if child.name != "PlayerBoardLabel":
-            # Make original cards visible again
-            child.visible = true
-            
-            # Reset modulate to white (normal appearance)
-            child.modulate = Color.WHITE
-            
-            # Also restore health text color if it exists
-            var stats_label = child.find_child("CardStats", true, false)
-            if stats_label and stats_label is Label:
-                stats_label.remove_theme_color_override("font_color")
+            children_to_remove.append(child)
+    
+    print("CombatManager: Removing ", children_to_remove.size(), " cards from board")
+    for child in children_to_remove:
+        board_container.remove_child(child)
+        child.queue_free()
 
 func _display_multiplayer_opponent_board(player1_id: int, player1_board: Array, player2_id: int, player2_board: Array) -> void:
     """Display the opponent's board in multiplayer combat"""
@@ -1021,6 +1018,16 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         # Restore hand area
         _show_hand_area()
         
+        # Force a complete board refresh from state to fix any animation modifications
+        # Always refresh the board when returning from combat to ensure correct display
+        var local_player = GameState.get_local_player()
+        if local_player and NetworkManager:
+            print("CombatManager: Forcing board refresh after combat")
+            print("CombatManager: Player board minions in state: ", local_player.board_minions)
+            # The board was already cleared in _restore_player_board_appearance
+            # Now recreate from state
+            NetworkManager._update_board_display(local_player)
+        
         # Update displays - turn has already advanced so values should be correct
         # Use call_deferred to ensure combat visualization cards are fully removed
         ui_manager.call_deferred("update_all_game_displays")
@@ -1029,7 +1036,6 @@ func _on_game_mode_changed(new_mode: GameState.GameMode) -> void:
         # Use call_deferred to ensure UI is ready
         if GameModeManager.is_in_multiplayer_session() and shop_manager:
             print("CombatManager: Scheduling shop refresh after returning from combat")
-            var local_player = GameState.get_local_player()
             if local_player:
                 print("  Local player shop cards: ", local_player.shop_cards)
                 if local_player.shop_cards.size() > 0:
@@ -1293,6 +1299,22 @@ func _simulate_multiplayer_combat(player1_board: Array, player2_board: Array, pl
     
     return {"log": action_log, "player1_final": player1_final, "player2_final": player2_final}
 
+func _on_combat_animations_complete() -> void:
+    """Called when combat animations are complete"""
+    print("Combat animations complete")
+    # Final boards are already displayed by animation system
+    # Just ensure UI is updated
+    ui_manager.update_health_displays()
+    
+    # When animations complete, we need to ensure the board is refreshed when returning to shop
+    # The actual refresh will happen in _on_game_mode_changed when switching to SHOP mode
+
+func skip_all_combat_animations() -> void:
+    """Skip all combat animations and show final state immediately"""
+    skip_animations = true
+    if animation_player and animation_player.is_playing:
+        animation_player.skip_combat()
+
 func _create_final_state(board: Array) -> Array:
     """Create final state for a board with no combat (all minions at full health)"""
     var final_state = []
@@ -1347,6 +1369,48 @@ func _on_combat_results_received_v2(combat_log: Array, player1_id: int, player1_
     
     # Display the final board states
     _display_multiplayer_final_boards(final_states)
+
+func _on_combat_results_received_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array) -> void:
+    """Handle combat results with animations"""
+    print("Combat results v3 received - Starting combat animations")
+    print("Player1 final: ", player1_final)
+    print("Player2 final: ", player2_final)
+    print("Combat log size: ", combat_log.size())
+    
+    # Display the combat log text first
+    _show_multiplayer_combat_log(combat_log)
+    
+    # Setup animation player
+    var player_board = main_layout.get_node("PlayerBoard")
+    var enemy_board = main_layout.get_node("ShopArea")
+    animation_player.setup(player_board, enemy_board, ui_manager)
+    
+    # Connect sound signals (optional - for future use)
+    # animation_player.sound_combat_start.connect(_play_combat_start_sound)
+    # animation_player.sound_attack_impact.connect(_play_attack_sound)
+    # animation_player.sound_minion_death.connect(_play_death_sound)
+    # animation_player.sound_combat_end.connect(_play_combat_end_sound)
+    
+    # Determine which boards are ours vs opponent
+    var our_minions: Array
+    var opponent_minions: Array
+    
+    if player1_id == GameState.local_player_id:
+        our_minions = player1_final
+        opponent_minions = player2_final
+    else:
+        our_minions = player2_final
+        opponent_minions = player1_final
+    
+    # Start animations
+    if not skip_animations:
+        animation_player.play_combat_animation(combat_log, our_minions, opponent_minions)
+    else:
+        # Skip directly to final state
+        _on_combat_animations_complete()
+        
+    # Update health displays will happen after animations complete
+    ui_manager.update_health_displays()
 
 func _display_multiplayer_final_boards(final_states: Dictionary) -> void:
     """Display final board states for both players after multiplayer combat"""

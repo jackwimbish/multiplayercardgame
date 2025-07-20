@@ -678,6 +678,13 @@ func _unhandled_input(event):
             _exit_battlecry_target_mode()
             ui_manager.show_flash_message("Battlecry cancelled", 1.0)
             get_viewport().set_input_as_handled()
+    
+    # Check for click to skip combat animations
+    if GameState.current_mode == GameState.GameMode.COMBAT and event is InputEventMouseButton:
+        if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+            if combat_manager and combat_manager.has_method("skip_all_combat_animations"):
+                combat_manager.skip_all_combat_animations()
+                get_viewport().set_input_as_handled()
 
 # Visual feedback functions moved to DragDropManager
 

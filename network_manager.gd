@@ -31,6 +31,7 @@ signal network_error(message: String)
 signal combat_started(combat_data: Dictionary)
 signal combat_results_received(combat_log: Array, player1_damage: int, player2_damage: int)
 signal combat_results_received_v2(combat_log: Array, player1_id: int, player1_damage: int, player2_id: int, player2_damage: int, final_states: Dictionary)
+signal combat_results_received_v3(combat_log: Array, player1_id: int, player1_damage: int, player1_final: Array, player2_id: int, player2_damage: int, player2_final: Array)
 
 func _ready():
     print("NetworkManager initialized")
@@ -517,8 +518,8 @@ func sync_combat_results_v3(combat_log: Array, player1_id: int, player1_damage: 
         "player2_final": player2_final
     }
     
-    # Emit signal with final states for CombatManager to display
-    combat_results_received_v2.emit(combat_log, player1_id, player1_damage, player2_id, player2_damage, final_states)
+    # Only emit v3 signal for animation system (v2 is deprecated)
+    combat_results_received_v3.emit(combat_log, player1_id, player1_damage, player1_final, player2_id, player2_damage, player2_final)
     
     # Check for eliminations after damage is applied
     GameState.check_for_eliminations()
@@ -841,6 +842,10 @@ func _update_board_display(player: PlayerState):
             # Override base stats with current stats
             card_data["attack"] = minion.get("current_attack", card_data.get("attack", 0))
             card_data["health"] = minion.get("current_health", card_data.get("health", 1))
+            
+            print("NetworkManager: Creating visual for ", card_id)
+            print("  Minion data: ", minion)
+            print("  Card data attack: ", card_data["attack"], " health: ", card_data["health"])
             
             # Create visual card with drag and click handlers
             var custom_handlers = {
